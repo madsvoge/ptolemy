@@ -55,7 +55,7 @@ _ISLAND_RE = re.compile(
 # like named/celebrated/notable, or ends the clause with a colon before
 # the enumeration starts.
 _MOUNTAIN_RE = re.compile(
-    r"\b(?:named|celebrated|notable)\s+mountains?\b"
+    r"\b(?:named|celebrated|notable|noteworthy)\s+mountains?\b"
     r"|\bmountains?\b.{0,15}\b(?:are|called):"
     r"|\bmountains?\s+in\s+this\s+(?:section|region)\b"
     # A bare title like "Mountains in the Peloponnese" -- same
@@ -65,29 +65,35 @@ _MOUNTAIN_RE = re.compile(
     re.I,
 )
 
-_INLAND_RE = re.compile(
-    r"\binland\s+(?:cities|towns|villages)\b"
+# Split into two tiers. The strong tier is unambiguous -- Ptolemy is never
+# describing a coastal walk when he uses the word "inland"/"interior", or
+# "komai" (Greek villages), or "the interior villages of X". The weak tier
+# ("the following cities are:", "Its towns are:") is Ptolemy's own generic
+# list-introducing convention, and he reuses that exact phrasing for
+# coastal river-mouth lists too (confirmed: Hyrkania's own Caspian-coast
+# section opens "In this section are the following cities:" and then
+# cites nothing but river mouths) -- so the weak tier is only trusted when
+# the section's own points don't already show a stronger coastal signal.
+_INLAND_STRONG_RE = re.compile(
+    # "inlands cities" (the -s misplaced onto "inland" instead of the noun)
+    # is a real transcription slip in this text (confirmed §2.10.6) --
+    # tolerate it the same way "villages"/"komai" tolerate Ptolemy's own
+    # wording variance.
+    r"\binlands?\s+(?:cities|towns|villages)\b"
     r"|\binterior\s+(?:cities|towns|villages)\b"
     r"|\b(?:cities|towns|villages)\s+of\s+the\s+interior\b"
     r"|\bin\s+the\s+interior\b"
     r"|\binterior\s+of\b"
-    # Ptolemy names a tribe's own settlements with a colon-terminated
-    # "(the following|these) (towns|cities|villages):" intro just as often
-    # as he uses the literal word "inland" -- this is the same
-    # list-introducing convention as the named-mountain-list cue above,
-    # just for settlements, and it recurs constantly interleaved *within*
-    # an otherwise coastal walk (confirmed empirically: ~30 of these carry
-    # no other signal and would otherwise wrongly inherit whatever type
-    # came before them). "villages"/"komai" (the Greek word Kiesling
-    # sometimes leaves untranslated, e.g. "on the west bank of the river
-    # are the komai") is the same convention as "towns"/"cities" -- Ptolemy
-    # doesn't distinguish a village-list from a town-list structurally.
-    r"|\b(?:the\s+)?(?:following|these)\s+(?:towns|cities|villages|komai)\b"
-    r"|\b(?:towns|cities|villages|komai):"
     # "komai" (Greek villages) is specific/technical enough a term that it
-    # doesn't need the "following/these" wrapper to be a reliable signal on
+    # doesn't need a "following/these" wrapper to be a reliable signal on
     # its own -- e.g. "on the west bank of the river are the komai".
     r"|\bkomai\b",
+    re.I,
+)
+_INLAND_WEAK_RE = re.compile(
+    r"\b(?:the\s+)?(?:following|these)\s+(?:towns|cities|villages|komai)\b"
+    r"|\b(?:towns|cities|villages|komai):"
+    r"|\bits\s+towns\s+are\b|\bits\s+cities\s+are\b",
     re.I,
 )
 
@@ -100,7 +106,11 @@ _COASTAL_LEAD_RE = re.compile(
     re.I,
 )
 _COASTAL_POINT_RE = re.compile(
-    r"\bpromontory\b|\bcape\b|\bheadland\b|\bbay\b|\bgulf\b|\bharbou?r\b|\bmouth\s+of\b|\bestuary\b",
+    # Bare "mouth(s)" catches both word orders ("mouth of the Vidua river"
+    # and "Maxeras river mouth", confirmed both used in this text -- see
+    # the same word-order tolerance already needed in tag.py's own
+    # river-mouth matching).
+    r"\bpromontory\b|\bcape\b|\bheadland\b|\bbay\b|\bgulf\b|\bharbou?r\b|\bmouths?\b|\bestuary\b",
     re.I,
 )
 
@@ -127,15 +137,17 @@ def _own_signal(section: Section) -> str | None:
     phrases as first-class signal, not a fallback.
     """
     lead = section.lead_text
+    phrases = " ".join(c.name_phrase for c in section.citations)
     if _ISLAND_RE.search(lead):
         return ISLAND
     if _MOUNTAIN_RE.search(lead):
         return MOUNTAIN
-    if _INLAND_RE.search(lead):
+    if _INLAND_STRONG_RE.search(lead):
         return INLAND
-    phrases = " ".join(c.name_phrase for c in section.citations)
     if _COASTAL_LEAD_RE.search(lead) or _COASTAL_POINT_RE.search(phrases):
         return COASTAL
+    if _INLAND_WEAK_RE.search(lead):
+        return INLAND
     if _BOUNDARY_RE.search(lead):
         return BOUNDARY
     return None

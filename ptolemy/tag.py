@@ -81,6 +81,14 @@ _TRIBAL_CITY_RE = re.compile(r"\bcity\s+is\b|\bcities?\s+is\b|\bwhose\s+city\b|\
 _REFERENCE_MARKER_RE = re.compile(
     r"\bextreme\s+points?\b|\bextremity\b|\blimit\s+points?\b|\bend\s+points?\b"
     r"|\balready\s+mentioned\b|\bterminal\s+points?\b|\bterminus\b"
+    # "...along the line on this side along Epiros until the end, at
+    # position..." -- a boundary line's own endpoint, phrased without any
+    # of the "limit/extreme/end point" wording above. Confirmed on
+    # Macedonia's southern border (3.12.3): its coordinate sits far from
+    # where it's cited in document order (near the walk's actual
+    # Thessalian end, cited early as an orientation marker), which is
+    # exactly the shape of jump that self-intersects a drawn coastline.
+    r"|\buntil\s+the\s+end\b"
     # Named frontier landmarks Ptolemy uses to mark a boundary line
     # ("The Pillars of Alexander are at...", "The Sarmatian Gates...",
     # "The Albanian Gates...") -- proper nouns, but frontier markers, not
