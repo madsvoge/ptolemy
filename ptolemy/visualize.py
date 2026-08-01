@@ -33,12 +33,13 @@ _POINT_COLORS = {
 
 def render_map(points: list[Point], lines: list[Line], out_path: str,
                 title: str = "Ptolemy's Geographica, reconstructed from topostext (Nobbe)",
-                book_map_filter: str | None = None) -> None:
+                book_map_filter: str | None = None, width_px: int = 2400) -> None:
     point_by_id = {p.id: p for p in points}
     plot_points = [p for p in points if book_map_filter is None or p.book_map == book_map_filter]
     plot_lines = [l for l in lines if book_map_filter is None or l.book_map == book_map_filter]
 
-    fig, ax = plt.subplots(figsize=(16, 9))
+    dpi = 150
+    fig, ax = plt.subplots(figsize=(width_px / dpi, width_px / dpi * 9 / 16))
 
     for tag, color in _POINT_COLORS.items():
         xs = [p.lon_modern for p in plot_points if tag in p.tags]
@@ -57,5 +58,5 @@ def render_map(points: list[Point], lines: list[Line], out_path: str,
     ax.set_aspect("equal")
     ax.legend(markerscale=4, loc="lower left", fontsize=8)
     fig.tight_layout()
-    fig.savefig(out_path, dpi=150)
+    fig.savefig(out_path, dpi=dpi)
     plt.close(fig)
