@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 
-from .parser import Citation, Section
+from .parser import Section
 
 DEDUP_TOLERANCE_DEG = 0.05
 

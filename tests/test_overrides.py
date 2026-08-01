@@ -1,23 +1,19 @@
 import csv
 
-from ptolemy.classify import classify_sections, COASTAL, INLAND, ISLAND
+from ptolemy.classify import classify_sections, COASTAL, ISLAND
 from ptolemy.coords import convert_points
-from ptolemy.lines import build_all_lines
 from ptolemy.overrides import (
-    ADDED_POINTS_PATH,
-    POINT_OVERRIDES_PATH,
     SECTION_OVERRIDES_PATH,
     apply_manual_stitches,
     apply_point_overrides,
     apply_section_overrides,
     build_added_points,
     load_added_points,
-    load_point_overrides,
     load_section_overrides,
     override_key_for_point,
 )
 from ptolemy.parser import parse_sections
-from ptolemy.points import build_occurrence_index, dedup_points
+from ptolemy.points import dedup_points
 from ptolemy.tag import tag_points
 
 

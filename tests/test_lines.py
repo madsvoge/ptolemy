@@ -3,7 +3,7 @@ from ptolemy.points import dedup_points, build_occurrence_index
 from ptolemy.classify import classify_sections
 from ptolemy.tag import tag_points
 from ptolemy.coords import convert_points
-from ptolemy.lines import build_all_lines, river_base_name, mountain_base_name
+from ptolemy.lines import build_all_lines
 
 IRELAND_NORTH_WEST = """§ 2.2.1  Setting of Hivernia
 North coast:

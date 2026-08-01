@@ -216,7 +216,6 @@ def _own_signal(section: Section) -> str | None:
     phrases as first-class signal, not a fallback.
     """
     lead = section.lead_text
-    phrases = " ".join(c.name_phrase for c in section.citations)
     if _ISLAND_RE.search(lead):
         return ISLAND
     if _MOUNTAIN_RE.search(lead):

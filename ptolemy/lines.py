@@ -4,11 +4,11 @@ purely from catalogue order and coordinates; no ground truth is consulted.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 import math
 import re
 
-from .classify import COASTAL, ISLAND, MOUNTAIN, is_named_island_walk
+from .classify import ISLAND, is_named_island_walk
 from .parser import Section
 from .points import Point
 
