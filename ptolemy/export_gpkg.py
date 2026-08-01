@@ -14,6 +14,7 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import LineString, MultiLineString, Point as ShapelyPoint
 
+from .classify import override_note
 from .lines import Line
 from .parser import Section
 from .points import Point
@@ -104,6 +105,7 @@ def build_points_layer(points: list[Point], resolved: dict[str, str]) -> gpd.Geo
 def build_sections_table(sections: list[Section], resolved: dict[str, str]) -> pd.DataFrame:
     rows = []
     for s in sections:
+        note = override_note(s.key)
         rows.append({
             "key": s.key,
             "book": s.book,
@@ -115,6 +117,8 @@ def build_sections_table(sections: list[Section], resolved: dict[str, str]) -> p
             "lead_text": s.lead_text,
             "num_points": len(s.citations),
             "point_names": " | ".join(c.name_phrase for c in s.citations),
+            "manual_override": note is not None,
+            "override_note": note or "",
         })
     return pd.DataFrame(rows)
 

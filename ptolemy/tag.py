@@ -149,6 +149,15 @@ def tag_point(point: Point, resolved: dict[str, str]) -> set[str]:
     # not the coastline itself.
     if primary == "river_mouth" and COASTAL in section_types and not _DISTRIBUTARY_BRANCH_RE.search(name):
         tags.add("coast")
+    # Same reasoning for a harbor: it's cited as an ordinary waypoint
+    # between capes and river mouths in a coastal walk (confirmed
+    # §3.4.7-8, Sicily: "Brouka promontory ... Kaukana harbor ... Motykanos
+    # river mouth ... Odysseia promontory", all in the same walk) -- a
+    # harbor sitting on a coast is definitionally a coastal point, not just
+    # a harbor feature, and dropping it from the "coast" tag broke the
+    # drawn coastline into two separate trails around it.
+    if primary == "harbor" and COASTAL in section_types:
+        tags.add("coast")
     # A point cited in a boundary/orientation section is a boundary marker
     # *in addition to* whatever its own name says (it's frequently also a
     # duplicate of a point cited properly elsewhere -- see points.py dedup).

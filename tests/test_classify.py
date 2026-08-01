@@ -1,5 +1,5 @@
 from ptolemy.parser import parse_sections
-from ptolemy.classify import classify_sections, COASTAL, INLAND, ISLAND, MOUNTAIN, BOUNDARY
+from ptolemy.classify import classify_sections, override_note, COASTAL, INLAND, ISLAND, MOUNTAIN, BOUNDARY
 
 
 def _resolve(text):
@@ -129,6 +129,17 @@ def test_islands_adjacent_to_is_classified_island():
     assert resolved[sections[0].key] == ISLAND
 
 
+def test_cities_are_these_word_order_variant_is_classified_inland():
+    # "And the cities are these:" (confirmed §7.1.43) -- the same list-intro
+    # convention as "the following cities:", just with subject and
+    # predicate swapped. Without recognizing this order, the section had no
+    # signal of its own and silently inherited a stale coastal type carried
+    # in from far earlier in the book.map.
+    text = "§ 7.1.43  And the cities are these:—\nKaisana . 120°00' . 34°20'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == INLAND
+
+
 def test_no_signal_scoped_to_same_book_map():
     text = (
         "§ 2.2.1  The named mountains here are Foo\nMt. Foo 10°00' . 60°00'\n\n\n"
@@ -141,3 +152,37 @@ def test_no_signal_scoped_to_same_book_map():
     # across a map boundary.
     assert resolved["2.2.1"] == MOUNTAIN
     assert resolved["2.3.1"] == COASTAL
+
+
+def test_manual_override_applies_and_carries_a_note():
+    # §7.1.95's own lead calls itself "the line of coast", but several of
+    # its citations (Heptanesia -- "Seven Islands" -- among others) are
+    # historically identified as an island group, not detectable from the
+    # text alone. Confirmed via manual review; must apply as documented
+    # override with its own note, not a text-rule guess.
+    text = "§ 7.1.95  And along the line of coast as far as the Kolchic Gulf:—\nHeptanesia . 113°00' . 13°00'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == ISLAND
+    assert override_note(sections[0].key) is not None
+
+
+def test_manual_override_does_not_leak_into_downstream_inheritance():
+    # A section right after an overridden one, with no signal of its own,
+    # must still inherit whatever type the text itself actually carries
+    # (§7.1.96 continues §7.1.95's real coastal walk) -- the override
+    # corrects only that one section's own type, not the whole downstream
+    # chain.
+    text = (
+        "§ 7.1.95  And along the line of coast as far as the Kolchic Gulf:—\n"
+        "Heptanesia . 113°00' . 13°00'\n\n\n"
+        "§ 7.1.96  And in the Argaric Gulf:—\nKory . 126°30' . 13°00'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved["7.1.95"] == ISLAND
+    assert resolved["7.1.96"] == COASTAL
+
+
+def test_no_override_note_for_ordinary_sections():
+    text = "§ 2.2.1  A description of the coast\nBoreum promontory . 11°00' . 61°00'\n"
+    sections, resolved = _resolve(text)
+    assert override_note(sections[0].key) is None

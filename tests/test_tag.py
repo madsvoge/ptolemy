@@ -39,6 +39,18 @@ def test_promontory_tagged_coast():
     assert points["Boreum promontory"].tags == {"coast"}
 
 
+def test_harbor_in_coastal_section_gets_both_tags():
+    # A harbor cited as an ordinary waypoint in a coastal walk is a real
+    # point on that coastline, not just a harbor feature -- confirmed
+    # §3.4.7 (Sicily), "Kaukana harbor" sitting between a promontory and a
+    # river mouth in the same walk (previously excluded from the drawn
+    # coastline, breaking it into two trails).
+    text = "§ 3.4.7  A description of the coast\nKaukana harbor . 39°30' . 36°15'\n"
+    points = _tagged_points(text)
+    p = points["Kaukana harbor"]
+    assert p.tags == {"harbor", "coast"}
+
+
 def test_inland_city_default_tag():
     text = "§ 2.2.9  The following are the inland towns: Regia 13°00' . 60°20'\n"
     points = _tagged_points(text)

@@ -53,6 +53,41 @@ def test_sections_table_registered_as_attributes(tmp_path):
         con.close()
 
 
+def test_sections_table_carries_manual_override_note(tmp_path):
+    text = (
+        "§ 2.2.1  A description of the coast\nBoreum promontory 11°00' . 61°00'\n\n\n"
+        "§ 7.1.95  And along the line of coast as far as the Kolchic Gulf:—\n"
+        "Heptanesia . 113°00' . 13°00'\n"
+    )
+    sections = parse_sections(text)
+    resolved = classify_sections(sections)
+    points = dedup_points(sections)
+    tag_points(points, resolved)
+    propagate_river_context(sections, points)
+    propagate_bare_connector_tags(sections, points)
+    convert_points(points)
+    occ_index = build_occurrence_index(points)
+    lines = build_all_lines(sections, points, resolved, occ_index)
+    path = str(tmp_path / "override.gpkg")
+    write_geopackage(path, lines, points, resolved, sections)
+
+    con = sqlite3.connect(path)
+    try:
+        row = con.execute(
+            "SELECT type, manual_override, override_note FROM sections WHERE key = '7.1.95'"
+        ).fetchone()
+        assert row[0] == "island"
+        assert row[1] == 1
+        assert row[2]  # non-empty note
+
+        row = con.execute(
+            "SELECT manual_override, override_note FROM sections WHERE key = '2.2.1'"
+        ).fetchone()
+        assert row == (0, "")
+    finally:
+        con.close()
+
+
 def test_points_layer_has_boolean_tag_columns(tmp_path):
     path = _build(tmp_path)
     con = sqlite3.connect(path)

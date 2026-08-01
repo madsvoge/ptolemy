@@ -137,7 +137,14 @@ _INLAND_STRONG_RE = re.compile(
 _INLAND_WEAK_RE = re.compile(
     r"\b(?:the\s+)?(?:following|these)\s+(?:towns|cities|villages|komai)\b"
     r"|\b(?:towns|cities|villages|komai):"
-    r"|\bits\s+towns\s+are\b|\bits\s+cities\s+are\b",
+    r"|\bits\s+towns\s+are\b|\bits\s+cities\s+are\b"
+    # "And the cities are these:" / "whose towns are these:" -- the same
+    # list-intro convention with subject and predicate swapped (confirmed
+    # §7.1.43 and §7.1.65). Without this, a section using this word order
+    # had no signal of its own at all and silently inherited whatever
+    # coastal/inland type happened to be carried in from far earlier in
+    # the book.map.
+    r"|\b(?:towns|cities|villages|komai)\s+are\s+(?:these|the\s+following)\b",
     re.I,
 )
 
@@ -216,6 +223,38 @@ def _own_signal(section: Section) -> str | None:
     return None
 
 
+# Section keys where Ptolemy's own prose gives the classifier no textual
+# signal to read -- or actively points the wrong way -- confirmed only by
+# checking the citations against outside knowledge of the region, not
+# something a text-only rule can ever detect on its own. Applied as the
+# very last step of classify_sections(), after every automatic
+# signal/inheritance rule has already run, specifically so a later
+# automatic pass can never silently reclassify one of these out from under
+# a documented, deliberate correction. Each entry keeps its own note
+# explaining the evidence, since "why was this overridden" isn't
+# recoverable from the text the way every other classification decision
+# in this module is.
+SECTION_OVERRIDES: dict[str, tuple[str, str]] = {
+    "7.1.95": (
+        ISLAND,
+        "Ptolemy's own lead calls this \"the line of coast\", but several of "
+        "its citations (Heptanesia -- literally \"Seven Islands\" in Greek "
+        "-- Trikadiba, Peperine, Trinesia, Nanigeris) are historically "
+        "identified as an island group off India's coast, not a coastal "
+        "walk. Nothing in the section's own prose distinguishes it from an "
+        "ordinary coastal section, so this can't be reached by a general "
+        "text rule; confirmed by manual review only.",
+    ),
+}
+
+
+def override_note(key: str) -> str | None:
+    """The documented reason a section's type was manually overridden, or
+    None if it wasn't."""
+    entry = SECTION_OVERRIDES.get(key)
+    return entry[1] if entry else None
+
+
 def classify_sections(sections: list[Section]) -> dict[str, str]:
     """Return {section.key: resolved_type}, in document order.
 
@@ -243,6 +282,17 @@ def classify_sections(sections: list[Section]) -> dict[str, str]:
         last_type[bm] = rtype
         if rtype not in (ISLAND, MOUNTAIN):
             last_carryable[bm] = rtype
+
+    # Manual overrides are applied last and don't feed back into the
+    # inheritance chain above: a section right after an overridden one
+    # that has no signal of its own should still inherit whatever type was
+    # actually carried by the text (e.g. §7.1.96 correctly continues
+    # §7.1.95's original coastal walk rather than inheriting the island
+    # override) -- the override corrects that one section's own type, not
+    # the whole downstream chain.
+    for key, (rtype, _note) in SECTION_OVERRIDES.items():
+        if key in resolved:
+            resolved[key] = rtype
 
     return resolved
 
