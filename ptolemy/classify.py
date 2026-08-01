@@ -135,6 +135,12 @@ _INLAND_STRONG_RE = re.compile(
     # "Cities in the Cretan interior:".
     r"|\bin\s+the\s+(?:[\w-]+\s+)?interior\b"
     r"|\binterior\s+of\b"
+    # "These are the cities and villages of inland Karmania:" (confirmed
+    # §6.8.13) / "Of inland Corinthia" (§3.14.38) -- the adjective
+    # "inland" modifying the *region's own name* rather than sitting
+    # directly before "cities/towns/villages" the way the first
+    # alternative above requires.
+    r"|\b(?:cities|towns|villages)\s+of\s+inland\b|^of\s+inland\b"
     # "komai" (Greek villages) is specific/technical enough a term that it
     # doesn't need a "following/these" wrapper to be a reliable signal on
     # its own -- e.g. "on the west bank of the river are the komai".

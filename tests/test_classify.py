@@ -212,3 +212,25 @@ def test_cities_thus_named_stays_unaffected():
     text = "§ 6.16.6  The cities in Serike are thus named :—\nSera . 100°00' . 30°00'\n"
     sections, resolved = _resolve(text)
     assert resolved[sections[0].key] != MOUNTAIN
+
+
+def test_cities_and_villages_of_inland_region_is_classified_inland():
+    # "These are the cities and villages of inland Karmania:" (confirmed
+    # §6.8.13) -- "inland" modifies the region's own name rather than
+    # sitting directly before "cities/towns/villages", so the existing
+    # "inland cities/towns/villages" pattern doesn't reach it. Without this,
+    # a whole list of Karmania's own interior cities (Portospana, Karmana
+    # metropolis, ...) was wrongly strung into the coastal walk as if they
+    # were fresh capes and river mouths.
+    text = (
+        "§ 6.8.13  These are the cities and villages of inland Karmania:\n"
+        "Portospana . 96°00' . 25°00'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == INLAND
+
+
+def test_of_inland_region_bare_title_is_classified_inland():
+    text = "§ 3.14.38  Of inland Corinthia\nCorinthos . 53°00' . 37°00'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == INLAND
