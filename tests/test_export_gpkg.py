@@ -61,6 +61,7 @@ def test_sections_table_carries_manual_override_note(tmp_path):
     )
     sections = parse_sections(text)
     resolved = classify_sections(sections)
+    resolved["7.1.95"] = "island"  # simulates ptolemy.overrides.apply_section_overrides
     points = dedup_points(sections)
     tag_points(points, resolved)
     propagate_river_context(sections, points)
@@ -69,7 +70,7 @@ def test_sections_table_carries_manual_override_note(tmp_path):
     occ_index = build_occurrence_index(points)
     lines = build_all_lines(sections, points, resolved, occ_index)
     path = str(tmp_path / "override.gpkg")
-    write_geopackage(path, lines, points, resolved, sections)
+    write_geopackage(path, lines, points, resolved, sections, section_notes={"7.1.95": "seven islands"})
 
     con = sqlite3.connect(path)
     try:

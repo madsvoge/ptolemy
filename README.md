@@ -62,6 +62,56 @@ spot-check regions -- Britain in particular reproduces Ptolemy's famous
 "bent-over Scotland" distortion, a good sign the reconstruction is reading
 his actual catalogue order rather than an idealized shape.
 
+## Manual overrides
+
+Not everything is reachable from the text alone -- a section whose own
+prose gives no usable signal (or points the wrong way), a transcription
+typo, a stitch between two trail ends that a human has confirmed but the
+text never states outright. Rather than hardcoding one-off facts like
+these into the pipeline's own code (which used to be how this was done --
+see `git log -- ptolemy/classify.py` for the retired `SECTION_OVERRIDES`
+dict), they live in three small, git-committed CSVs under `data/`, read
+fresh by `ptolemy/overrides.py` as an explicit, late step on every
+pipeline run. The pipeline only ever reads these files; nothing writes to
+them, and a full run's ~4-15s cost is the same whether or not you've just
+added a row.
+
+- **`data/manual_section_overrides.csv`** -- `section_key, classify, note`.
+  Forces a whole section's resolved type. Applied after `classify_sections`'
+  own inheritance chain, and doesn't feed back into it: the section right
+  after an overridden one still inherits whatever type the text itself
+  actually carries.
+- **`data/manual_point_overrides.csv`** -- `section_key, char_offset,
+  point_name_ref, classify, stitch_to, correction_field, correction_value,
+  note`. One row can force a point's tag (`classify`), correct a single
+  field (`correction_field` is `lon_ferro` or `lat_ferro`,
+  `correction_value` its new value -- e.g. a transcription typo), and/or
+  connect it to another point's trail (`stitch_to`) -- all three
+  independently, on the same or separate rows for the same point. Keyed on
+  `(section_key, char_offset)`: the exact position of the citation's own
+  coordinate in the raw source text, not the point's P-id, which is
+  reassigned sequentially every run and is *not* stable across a parser or
+  dedup change. `point_name_ref` is read-only, for a human skimming the
+  file -- matching uses the offset, never the name.
+- **`data/manual_added_points.csv`** -- `key, book_map, name, lon_ferro,
+  lat_ferro, tags, stitch_to, note`. A point with no citation of its own at
+  all (Ptolemy's text never closes off the edge of the known world, so a
+  display-only closure point sometimes has to come from somewhere else).
+  `key` is a free-form stable id you choose; the resulting Point is flagged
+  `is_synthetic=True` (its own column in the GeoPackage's points layer)
+  so it's never mistaken for something the text actually says.
+
+`stitch_to` (on either of the last two files) references the *target*
+point's own stable key: `"<section_key>@<char_offset>"` for a real
+citation, or `"synthetic:<key>"` for another added point. Each confirmed
+stitch becomes its own `kind="stitch"` line -- a distinct, solid-colored
+layer (`manual_stitches` in the GeoPackage) kept separate from the
+automatically-*suggested* candidates `ptolemy/stitch.py` draws as dashed
+lines on the smoke-test map (see `suggest_stitches` -- those are proximity
+hints for review, never applied automatically). A bad or stale key in any
+of the three files doesn't fail the pipeline; it prints a `WARNING:` line
+naming the row so it's easy to notice and fix.
+
 ## Key design decisions (and why)
 
 - **Parsing gotchas** (all found empirically against this exact text, all

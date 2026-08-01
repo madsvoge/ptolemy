@@ -70,14 +70,26 @@ class Point:
     tags: set[str] = field(default_factory=set)
     lon_modern: float | None = None
     lat_modern: float | None = None
+    # A point manually added via data/manual_added_points.csv (see
+    # ptolemy/overrides.py) has no citation of its own -- it exists only to
+    # close a shape for display, not because Ptolemy's text says anything
+    # at that coordinate. is_synthetic keeps that fact visible all the way
+    # through to the GeoPackage, and manual_name stands in for the `name`
+    # property below, which otherwise has nothing to derive a name from.
+    is_synthetic: bool = False
+    manual_name: str | None = None
 
     @property
     def name(self) -> str:
+        if not self.occurrences:
+            return self.manual_name or self.id
         candidates = [trim_name(o.name_phrase) for o in self.occurrences]
         return min(candidates, key=len)
 
     @property
     def name_variants(self) -> list[str]:
+        if not self.occurrences:
+            return [self.manual_name] if self.manual_name else []
         seen, out = set(), []
         for o in self.occurrences:
             if o.name_phrase not in seen:
@@ -87,7 +99,7 @@ class Point:
 
     @property
     def first_char_offset(self) -> int:
-        return self.occurrences[0].char_offset
+        return self.occurrences[0].char_offset if self.occurrences else -1
 
     @property
     def south(self) -> bool:

@@ -14,7 +14,6 @@ import geopandas as gpd
 import pandas as pd
 from shapely.geometry import LineString, MultiLineString, Point as ShapelyPoint
 
-from .classify import override_note
 from .lines import Line
 from .parser import Section
 from .points import Point
@@ -24,6 +23,7 @@ _KIND_TO_LAYER = {
     "river": "rivers",
     "mountain": "mountains",
     "island": "islands",
+    "stitch": "manual_stitches",
 }
 
 # One boolean column per tag, in addition to the comma-joined "tags"
@@ -35,6 +35,8 @@ _ALL_TAGS = ["coast", "city", "river", "river_mouth", "harbor", "island", "mount
 def _feature_id(line: Line) -> str:
     if line.kind == "coastline":
         return line.book_map
+    if line.kind == "stitch":
+        return line.id
     return f"{line.book_map}-{line.feature_name}"
 
 
@@ -94,6 +96,7 @@ def build_points_layer(points: list[Point], resolved: dict[str, str]) -> gpd.Geo
             "lon_ferro": round(p.lon_ferro, 4),
             "lat_ferro": round(p.lat_ferro, 4),
             "south": p.south,
+            "is_synthetic": p.is_synthetic,
         }
         for tag in _ALL_TAGS:
             row[f"is_{tag}"] = tag in p.tags
@@ -102,10 +105,12 @@ def build_points_layer(points: list[Point], resolved: dict[str, str]) -> gpd.Geo
     return gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326")
 
 
-def build_sections_table(sections: list[Section], resolved: dict[str, str]) -> pd.DataFrame:
+def build_sections_table(sections: list[Section], resolved: dict[str, str],
+                          section_notes: dict[str, str] | None = None) -> pd.DataFrame:
+    section_notes = section_notes or {}
     rows = []
     for s in sections:
-        note = override_note(s.key)
+        note = section_notes.get(s.key)
         rows.append({
             "key": s.key,
             "book": s.book,
@@ -124,7 +129,8 @@ def build_sections_table(sections: list[Section], resolved: dict[str, str]) -> p
 
 
 def write_geopackage(path: str, lines: list[Line], points: list[Point], resolved: dict[str, str],
-                      sections: list[Section] | None = None) -> None:
+                      sections: list[Section] | None = None,
+                      section_notes: dict[str, str] | None = None) -> None:
     point_by_id = {p.id: p for p in points}
     layers = build_line_layers(lines, point_by_id)
     layers["points"] = build_points_layer(points, resolved)
@@ -138,13 +144,13 @@ def write_geopackage(path: str, lines: list[Line], points: list[Point], resolved
         # supports these natively (an "attributes" table type), and QGIS
         # lists them alongside the spatial layers with a normal attribute
         # table view.
-        build_sections_table(sections, resolved).to_csv(
+        build_sections_table(sections, resolved, section_notes).to_csv(
             path.rsplit(".", 1)[0] + "_sections.csv", index=False
         )
         import sqlite3
         con = sqlite3.connect(path)
         try:
-            df = build_sections_table(sections, resolved)
+            df = build_sections_table(sections, resolved, section_notes)
             df.to_sql("sections", con, if_exists="replace", index=False)
             con.execute(
                 "INSERT OR REPLACE INTO gpkg_contents "

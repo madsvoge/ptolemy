@@ -230,62 +230,22 @@ def _own_signal(section: Section) -> str | None:
     return None
 
 
-# Section keys where Ptolemy's own prose gives the classifier no textual
-# signal to read -- or actively points the wrong way -- confirmed only by
-# checking the citations against outside knowledge of the region, not
-# something a text-only rule can ever detect on its own. Applied as the
-# very last step of classify_sections(), after every automatic
-# signal/inheritance rule has already run, specifically so a later
-# automatic pass can never silently reclassify one of these out from under
-# a documented, deliberate correction. Each entry keeps its own note
-# explaining the evidence, since "why was this overridden" isn't
-# recoverable from the text the way every other classification decision
-# in this module is.
-SECTION_OVERRIDES: dict[str, tuple[str, str]] = {
-    "7.1.95": (
-        ISLAND,
-        "Ptolemy's own lead calls this \"the line of coast\", but several of "
-        "its citations (Heptanesia -- literally \"Seven Islands\" in Greek "
-        "-- Trikadiba, Peperine, Trinesia, Nanigeris) are historically "
-        "identified as an island group off India's coast, not a coastal "
-        "walk. Nothing in the section's own prose distinguishes it from an "
-        "ordinary coastal section, so this can't be reached by a general "
-        "text rule; confirmed by manual review only.",
-    ),
-    "4.6.24": (
-        INLAND,
-        "Own lead reads \"...in the coastal section, as follows:\", which "
-        "reads as Ptolemy's own administrative label for a named district, "
-        "not a declared coastal walk -- \"coastal\" here doesn't even match "
-        "the classifier's own coast-word check (it needs the standalone "
-        "word \"coast\", not \"coastal\"), so this section had no signal of "
-        "its own at all and was silently inheriting a stale 'coastal' type "
-        "carried from an unrelated, zero-citation tribal-ethnography aside "
-        "eight sections earlier (§4.6.17, 'the smaller ethnic groups... "
-        "occupy the coast') that has nothing to do with these particular "
-        "cities. Its own coordinates (23°50'N down to 12°15'N, a "
-        "north-south desert corridor) match the 'Interior of Libya' framing "
-        "given for the whole book.map at §4.6.1, not any real coastline; "
-        "confirmed by manual review only.",
-    ),
-}
-
-
-def override_note(key: str) -> str | None:
-    """The documented reason a section's type was manually overridden, or
-    None if it wasn't."""
-    entry = SECTION_OVERRIDES.get(key)
-    return entry[1] if entry else None
-
-
 def classify_sections(sections: list[Section]) -> dict[str, str]:
-    """Return {section.key: resolved_type}, in document order.
+    """Return {section.key: resolved_type}, in document order, from the
+    text alone -- no manual judgment applied here. A section with no
+    signal of its own inherits the previous section's resolved type,
+    scoped to the same book.map -- but never inherits INTO island/
+    mountain: those are always their own explicitly-marked appendix, so a
+    no-signal continuation skips past them to the last resolved coastal/
+    inland/boundary type instead.
 
-    A section with no signal of its own inherits the previous section's
-    resolved type, scoped to the same book.map -- but never inherits INTO
-    island/mountain: those are always their own explicitly-marked
-    appendix, so a no-signal continuation skips past them to the last
-    resolved coastal/inland/boundary type instead.
+    Cases where the text genuinely gives no usable signal (or points the
+    wrong way) are not handled here: see ptolemy.overrides.
+    apply_section_overrides, a small git-committed CSV of curator
+    judgment applied as an explicit, separate pipeline step -- kept out of
+    this function so classify_sections stays a pure function of the
+    source text, and a manual correction never requires touching this
+    module or its tests.
     """
     resolved: dict[str, str] = {}
     last_type: dict[str, str] = {}          # book.map -> most recent resolved type
@@ -305,17 +265,6 @@ def classify_sections(sections: list[Section]) -> dict[str, str]:
         last_type[bm] = rtype
         if rtype not in (ISLAND, MOUNTAIN):
             last_carryable[bm] = rtype
-
-    # Manual overrides are applied last and don't feed back into the
-    # inheritance chain above: a section right after an overridden one
-    # that has no signal of its own should still inherit whatever type was
-    # actually carried by the text (e.g. §7.1.96 correctly continues
-    # §7.1.95's original coastal walk rather than inheriting the island
-    # override) -- the override corrects that one section's own type, not
-    # the whole downstream chain.
-    for key, (rtype, _note) in SECTION_OVERRIDES.items():
-        if key in resolved:
-            resolved[key] = rtype
 
     return resolved
 

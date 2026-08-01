@@ -18,6 +18,12 @@ _COLORS = {
     "river": "#12b83a",
     "mountain": "#8d5524",
     "island": "#d4a017",
+    # A confirmed manual stitch (data/manual_point_overrides.csv's own
+    # stitch_to, or manual_added_points.csv's) -- solid, darker than the
+    # dashed *suggested* stitch color below, so a reviewer can tell at a
+    # glance which connections are still just candidates and which have
+    # already been accepted.
+    "stitch": "#7c1fa2",
 }
 _POINT_COLORS = {
     "coast": "#1f6f8b",
