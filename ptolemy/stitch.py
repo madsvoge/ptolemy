@@ -12,13 +12,10 @@ from dataclasses import dataclass
 from .lines import Line, _dist
 from .points import Point
 
-# Wider than COASTLINE_CAP_DEG (5.0) on purpose: within-book.map gaps under
-# that cap are already closed by _stitch_runs, so anything left open and
-# still worth suggesting is, by definition, further apart than that -- most
-# often a cross-book.map jump (Ptolemy resumes a coast in the next section
-# after an inland/boundary/mountain aside). This cap only bounds what's
-# worth a human's time to look at, not a claim that the connection is real.
-STITCH_SUGGEST_CAP_DEG = 10.0
+# Cross-book.map gap worth a human's time to look at -- tightened from an
+# initial 10.0 after visual review (madsvoge): candidates past ~3 degrees
+# were mostly coincidental proximity, not real continuations.
+STITCH_SUGGEST_CAP_DEG = 3.0
 
 
 @dataclass
