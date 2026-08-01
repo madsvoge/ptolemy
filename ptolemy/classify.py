@@ -152,10 +152,29 @@ def _own_signal(section: Section) -> str | None:
         return MOUNTAIN
     if _INLAND_STRONG_RE.search(lead):
         return INLAND
-    if _COASTAL_LEAD_RE.search(lead) or _COASTAL_POINT_RE.search(phrases):
+    if _COASTAL_LEAD_RE.search(lead):
         return COASTAL
-    if _INLAND_WEAK_RE.search(lead):
+    weak_inland = bool(_INLAND_WEAK_RE.search(lead))
+    if section.citations:
+        coastal_hits = sum(1 for c in section.citations if _COASTAL_POINT_RE.search(c.name_phrase))
+    else:
+        coastal_hits = 0
+    if weak_inland:
+        # The weak inland tier ("the following towns are:") and coastal
+        # point-level cues can both fire on the same section -- e.g. a
+        # genuine inland tribal-town list (Britain's Brigantes, 2.3.10)
+        # that tacks on one trailing orientation aside mentioning a bay.
+        # One incidental coastal word among many plain city names must
+        # not flip the whole section; only trust point-level cues over
+        # the section's own explicit list header when they're not just
+        # incidental -- i.e. at least half the citations carry one
+        # (confirmed coastal on this basis: Hyrkania's own river-mouth
+        # list, §6.9.2, where nearly every citation is a "river mouth").
+        if coastal_hits and coastal_hits >= len(section.citations) / 2:
+            return COASTAL
         return INLAND
+    if coastal_hits:
+        return COASTAL
     if _BOUNDARY_RE.search(lead):
         return BOUNDARY
     return None

@@ -36,6 +36,17 @@ _RIVER_RE = re.compile(
     r"|\bflows?\s+into\b|\bjoins?\b|\bsplits?\s+into\b"
     r"|\briver\b[^.\n]{0,25}\bturns?\b|\bturns?\b[^.\n]{0,25}\briver\b"
     r"|\bturn\s+of\s+the\s+river\b"
+    # "Beginning of the river" / "Head of the river" -- both confirmed
+    # (Peloponnese: Eurotas's and Inachos's own sources) as this text's
+    # other synonyms for a river's source, cited right after that same
+    # river's own mouth/outlet.
+    r"|\bbeginning\s+of\s+(?:the\s+)?river\b|\bhead\s+of\s+(?:the\s+)?river\b"
+    # "The Peneios river from Mt. Pindos at position..." / "the Spercheios
+    # river similarly at position..." -- a river's source given by naming
+    # the mountain it rises from (or anaphorically restating that same
+    # template for the next river). The window allows a period so an
+    # embedded "Mt." abbreviation doesn't cut it short.
+    r"|\briver\b[^\n]{0,30}\bat\s+position\b"
     # "Mid-point of its length" / "Mid–point of the length of the river"
     # (referring anaphorically, or by full restatement, to a river cited
     # nearby) is this text's own way of citing a point partway along a
