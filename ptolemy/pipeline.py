@@ -14,6 +14,7 @@ from .export_json import write_export
 from .lines import build_all_lines
 from .parser import load_sections
 from .points import build_occurrence_index, dedup_points
+from .stitch import suggest_stitches
 from .tag import propagate_bare_connector_tags, propagate_river_context, tag_points
 from .visualize import render_map
 
@@ -30,6 +31,11 @@ def run(source_path: str, out_dir: str) -> dict:
     convert_points(points)
     occurrence_index = build_occurrence_index(points)
     lines = build_all_lines(sections, points, resolved, occurrence_index)
+    # Advisory only: candidate connections between loose trail ends, close
+    # enough to be worth a human looking at. Never fed back into `lines`
+    # or the GeoPackage export -- just an overlay on the smoke-test map so
+    # a reviewer can judge each one before it's ever treated as real.
+    stitches = suggest_stitches(lines, points)
 
     write_export(
         os.path.join(out_dir, "ptolemy.json"),
@@ -39,16 +45,17 @@ def run(source_path: str, out_dir: str) -> dict:
         os.path.join(out_dir, "ptolemy.gpkg"),
         lines, points, resolved, sections,
     )
-    render_map(points, lines, os.path.join(out_dir, "ptolemy_map.png"))
+    render_map(points, lines, os.path.join(out_dir, "ptolemy_map.png"), stitches=stitches)
     for label, book_map in (("ireland", "2.2"), ("britain", "2.3"), ("italy", "3.1")):
         render_map(points, lines, os.path.join(out_dir, f"ptolemy_{label}.png"),
-                   title=f"Spot check: {label} ({book_map})", book_map_filter=book_map)
+                   title=f"Spot check: {label} ({book_map})", book_map_filter=book_map, stitches=stitches)
 
     return {
         "sections": sections,
         "resolved": resolved,
         "points": points,
         "lines": lines,
+        "stitches": stitches,
     }
 
 
