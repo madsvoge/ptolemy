@@ -46,22 +46,23 @@ def test_large_internal_gap_flagged_on_a_closed_loop():
     # typical spacing -- invisible to a loose-end check, which only looks
     # at trail termini, not every edge along the way (confirmed on
     # Ireland's own real coastline: closed=True, no red dot, yet one
-    # internal edge is 3.6 degrees against a ~0.9 degree median). Three
+    # internal edge is 3.6 degrees against a ~0.8 degree median). Three
     # sides of this rectangle are walked in short 1-degree steps; only the
-    # last side (the closing edge back to the start) is a single 3-degree
-    # jump, standing in for a stretch of coast Ptolemy just didn't cite
-    # any intermediate points for.
+    # last side (the closing edge back to the start, 8 degrees) is a single
+    # big jump, standing in for a stretch of coast Ptolemy just didn't cite
+    # any intermediate points for -- flagged because it's both far above
+    # the absolute floor and far above 4x this trail's own median spacing.
     coords = [
         (10, 60), (10, 61), (10, 62), (10, 63),
-        (11, 63), (12, 63), (13, 63),
-        (13, 62), (13, 61), (13, 60),
+        (11, 63), (12, 63), (13, 63), (14, 63), (15, 63), (16, 63), (17, 63), (18, 63),
+        (18, 62), (18, 61), (18, 60),
     ]
     points = [_pt(f"P{i}", lon, lat) for i, (lon, lat) in enumerate(coords, start=1)]
     point_by_id = {p.id: p for p in points}
     line = Line(id="l1", kind="coastline", book_map="2.2", feature_name=None,
                 point_ids=[p.id for p in points], closed=True)
-    gaps = _large_gap_ends([line], point_by_id, threshold=2.5)
-    assert gaps == {"P1", "P10"}
+    gaps = _large_gap_ends([line], point_by_id)
+    assert gaps == {"P1", "P15"}
 
 
 def test_no_gap_flagged_when_all_edges_are_short():
@@ -69,4 +70,20 @@ def test_no_gap_flagged_when_all_edges_are_short():
     point_by_id = {p.id: p for p in points}
     line = Line(id="l1", kind="coastline", book_map="2.2", feature_name=None,
                 point_ids=["P1", "P2", "P3"], closed=False)
-    assert _large_gap_ends([line], point_by_id, threshold=2.5) == set()
+    assert _large_gap_ends([line], point_by_id) == set()
+
+
+def test_sparsely_cited_trail_not_flagged_for_its_own_normal_spacing():
+    # A region Ptolemy barely knew (Scandinavia, India beyond the Ganges)
+    # is cited far more sparsely than the Mediterranean -- its own *normal*
+    # edge-to-edge spacing can already be several degrees, and none of that
+    # should read as "a hole" just because it's bigger than a Mediterranean
+    # trail's typical spacing (reported: "why does Scandinavia/East Asia
+    # get this marker now, there were no holes before" -- confirmed caused
+    # by the old fixed 2.5-degree absolute threshold).
+    coords = [(0, 0), (3, 1), (6, 0), (9, 1), (12, 0)]
+    points = [_pt(f"P{i}", lon, lat) for i, (lon, lat) in enumerate(coords, start=1)]
+    point_by_id = {p.id: p for p in points}
+    line = Line(id="l1", kind="coastline", book_map="6.14", feature_name=None,
+                point_ids=[p.id for p in points], closed=False)
+    assert _large_gap_ends([line], point_by_id) == set()

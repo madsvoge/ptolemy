@@ -5,6 +5,8 @@ but easy to miss reading JSON.
 """
 from __future__ import annotations
 
+import statistics
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -48,15 +50,22 @@ _STITCH_LABEL = "suggested stitch"
 _GAP_COLOR = "#111111"
 _GAP_MARKER = "X"
 _GAP_LABEL = "large internal gap"
-# Just above the corpus-wide 95th percentile edge length (~2.3 degrees) --
-# high enough that ordinary point-to-point spacing never trips it, low
-# enough to still catch a real oddity like Ireland's own closed loop,
-# which reads as gap-free (no red loose-end dot, since it *is* a closed
-# ring) but actually jumps 3.6 degrees across open water/land between two
-# citations Ptolemy just didn't fill in between -- invisible under the
-# loose-end check alone, since that only looks at trail *termini*, not
-# every edge along the way.
-LARGE_GAP_DEG = 2.5
+# A *relative* threshold, not a single corpus-wide absolute number: a
+# region Ptolemy knew well (the Mediterranean coasts) is cited far more
+# densely than one he barely knew (Scandinavia, India beyond the Ganges,
+# Serica) -- those trails' own *normal* spacing is already several degrees,
+# so a fixed absolute cutoff flagged nearly every edge in them as "wrong"
+# even though nothing there is anomalous, just sparse (reported: "why does
+# Scandinavia/East Asia get this marker, there were no holes before").
+# Flagging relative to each trail's *own* median edge length fixes that --
+# a genuine oddity like Ireland's closed loop (median 0.79 degrees, one
+# edge at 3.6) still stands out, while a uniformly sparse trail (3.5:
+# Sarmatia's own median is already 3.26) no longer does. The absolute
+# floor still applies on top, so a hyper-dense trail's minor variance
+# (e.g. median 0.1, one edge at 0.3) doesn't get flagged just for being
+# relatively bigger than its own tiny neighbours.
+LARGE_GAP_RELATIVE_MULTIPLE = 4.0
+LARGE_GAP_ABSOLUTE_FLOOR_DEG = 1.5
 
 
 def _loose_ends(lines: list[Line]) -> set[str]:
@@ -79,12 +88,17 @@ def _loose_ends(lines: list[Line]) -> set[str]:
     return ends
 
 
-def _large_gap_ends(lines: list[Line], point_by_id: dict[str, Point], threshold: float = LARGE_GAP_DEG) -> set[str]:
+def _large_gap_ends(lines: list[Line], point_by_id: dict[str, Point],
+                     relative_multiple: float = LARGE_GAP_RELATIVE_MULTIPLE,
+                     absolute_floor: float = LARGE_GAP_ABSOLUTE_FLOOR_DEG) -> set[str]:
     """Both endpoints of any edge -- including a closed loop's own closing
-    edge -- longer than `threshold`. A trail can be "closed" (no red loose
-    end) and still contain one citation-to-citation jump far bigger than
-    its own typical spacing, which is exactly what a loose-end check alone
-    can't see."""
+    edge -- that's unusually large *for that trail*: bigger than both a
+    flat absolute floor and some multiple of the trail's own median edge
+    length. A trail can be "closed" (no red loose end) and still contain
+    one citation-to-citation jump far bigger than its own typical spacing,
+    which is exactly what a loose-end check alone can't see -- but judged
+    against that trail's own scale, not one fixed number for every region
+    regardless of how densely Ptolemy cited it."""
     ends: set[str] = set()
     for line in lines:
         if line.kind not in ("coastline", "island") or len(line.point_ids) < 2:
@@ -93,8 +107,13 @@ def _large_gap_ends(lines: list[Line], point_by_id: dict[str, Point], threshold:
         pairs = list(zip(ids, ids[1:]))
         if line.closed and len(ids) > 2:
             pairs.append((ids[-1], ids[0]))
-        for a_id, b_id in pairs:
-            if _dist(point_by_id[a_id], point_by_id[b_id]) > threshold:
+        dists = [_dist(point_by_id[a], point_by_id[b]) for a, b in pairs]
+        if not dists:
+            continue
+        median = statistics.median(dists)
+        threshold = max(absolute_floor, relative_multiple * median)
+        for (a_id, b_id), d in zip(pairs, dists):
+            if d > threshold:
                 ends.add(a_id)
                 ends.add(b_id)
     return ends
