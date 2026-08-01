@@ -133,6 +133,33 @@ def test_island_walk_does_not_bridge_into_the_next_section():
     assert ids_by_walk[0].isdisjoint(ids_by_walk[1])
 
 
+def test_two_named_islands_packed_in_one_section_stay_separate_walks():
+    # Confirmed bug, §5.2.33: "Description of Karpathos:" and, mid-section,
+    # a second bare heading "Description of Rhodes island:" -- both
+    # citation lists land in the same §-numbered Section (the parser only
+    # splits on § markers), so without detecting the second heading,
+    # build_island_walks connected Karpathos's last point straight to
+    # Rhodes's first, drawing one self-crossing loop hopping between two
+    # unrelated islands instead of two separate trails.
+    text = (
+        "§ 5.2.33  Description of Karpathos:\n"
+        "Thoantion promontory . 57°00' . 35°20'\n"
+        "Poseidion city . 57°20' . 35°25'\n"
+        "Description of Rhodes island:\n"
+        "Panos promontory . 58°00' . 35°55'\n"
+        "Kameiros . 58°20' . 35°15'\n"
+        "Lindos . 58°40' . 36°00'\n"
+    )
+    points, lines = _build(text)
+    walks = [l for l in lines if l.kind == "island" and l.id.startswith("island-walk-")]
+    assert len(walks) == 2
+    ids_by_walk = [set(w.point_ids) for w in walks]
+    assert ids_by_walk[0].isdisjoint(ids_by_walk[1])
+    karpathos = next(w for w in walks if len(w.point_ids) == 2)
+    names = {p.name for p in points if p.id in karpathos.point_ids}
+    assert names == {"Thoantion promontory", "Poseidion city"}
+
+
 def test_island_list_section_is_not_blanket_connected():
     # A section that lists several distinct islands (each named as it
     # goes) must NOT have its points blanket-connected by catalogue-order

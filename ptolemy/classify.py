@@ -57,6 +57,23 @@ _ISLAND_LIST_RE = re.compile(
 # the way one island's own walk should be (confirmed: doing so for every
 # ISLAND-classified section drew nonsense self-intersecting lines across
 # unrelated islands cited back to back in the same list).
+# "Description of <Name>[ island]:" as a section's own bare lead, e.g.
+# "Description of Karpathos:" / "Description of Rhodes island:" --
+# distinct from the generic "Description of the west/south/... side:" and
+# "the description of {this side|this boundary|which} is..." coastal
+# conventions (confirmed: every other "description of" in this text is
+# followed by "the"/"this"/"which", never a bare proper noun). Also used,
+# via starts_new_named_island below, to catch a *second* such heading
+# appearing mid-section rather than in the lead -- Ptolemy sometimes packs
+# more than one named island's own walk into a single §-numbered section
+# (confirmed §5.2.33: "Description of Karpathos:" immediately followed,
+# after Karpathos's own points, by "Description of Rhodes island:" and
+# Rhodes's).
+_ISLAND_SUBHEADING_RE = re.compile(
+    r"\bdescription\s+of\s+(?!the\b|this\b|which\b)[A-Za-z][\w\s]{0,30}?:",
+    re.I,
+)
+
 _NAMED_ISLAND_WALK_RE = re.compile(
     # "island" co-occurring with Ptolemy's own "described/description as
     # follows" list-intro convention in the same lead sentence. That
@@ -69,13 +86,7 @@ _NAMED_ISLAND_WALK_RE = re.compile(
     # which must stay excluded since it's still list-scoped, not its own
     # section.
     r"(?=[^\n]*\bislands?\b)[^\n]*\b(?:described|description)\s+as\s+follows\b"
-    # "Description of <Name>[ island]:" as a section's own bare lead, e.g.
-    # "Description of Karpathos:" / "Description of Rhodes island:" --
-    # distinct from the generic "Description of the west/south/... side:"
-    # and "the description of {this side|this boundary|which} is..." coastal
-    # conventions (confirmed: every other "description of" in this text
-    # is followed by "the"/"this"/"which", never a bare proper noun).
-    r"|\bdescription\s+of\s+(?!the\b|this\b|which\b)[A-Za-z][\w\s]{0,30}?:",
+    r"|" + _ISLAND_SUBHEADING_RE.pattern,
     re.I,
 )
 
@@ -145,6 +156,16 @@ _INLAND_STRONG_RE = re.compile(
     # doesn't need a "following/these" wrapper to be a reliable signal on
     # its own -- e.g. "on the west bank of the river are the komai".
     r"|\bkomai\b"
+    # "Cities in the hinterland of Epiros:" (confirmed §3.13.5) -- the
+    # same "cities/towns/villages of the interior" idiom, just with
+    # "hinterland" instead of "interior". Without this, the section had no
+    # signal of its own (neither tier matched "hinterland", and it doesn't
+    # open with "the following"/"these" the way the weak tier requires) and
+    # silently inherited COASTAL from the preceding coastal-walk section,
+    # pulling a whole list of interior Epirote towns into that book.map's
+    # coastline trail as if they were shore citations (confirmed: this
+    # alone produced 11 of coastline-3.13-1's self-crossings).
+    r"|\b(?:cities|towns|villages)\s+(?:in|of)\s+the\s+hinterland\b"
     # "By [part of] the Euphrates river:" -- a river named purely as an
     # orientation landmark for the interior settlement list that follows
     # (confirmed §5.20.6, Babylonia: every city in the list is inland,
@@ -298,3 +319,15 @@ def is_named_island_walk(section: Section) -> bool:
     catalogue-order adjacency (see build_island_walks).
     """
     return bool(_NAMED_ISLAND_WALK_RE.search(section.lead_text))
+
+
+def starts_new_named_island(name_phrase: str) -> bool:
+    """True if a citation's own name_phrase opens with a fresh 'Description
+    of <Name>:' sub-heading. parser.extract_citations pulls a short bare
+    heading line into the *next* citation's own phrase rather than
+    dropping it (see its docstring) -- this is how a second named island's
+    walk, packed into the same §-numbered section as the first, becomes
+    detectable at all. build_island_walks uses this to start a fresh trail
+    instead of connecting the new island's points onto the previous one's.
+    """
+    return bool(_ISLAND_SUBHEADING_RE.search(name_phrase))

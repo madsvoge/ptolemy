@@ -46,6 +46,31 @@ def test_interior_cities_word_order_variant_is_classified_inland():
     assert resolved[sections[0].key] == INLAND
 
 
+def test_cities_in_the_hinterland_is_classified_inland():
+    # Confirmed §3.13.5, "Cities in the hinterland of Epiros: Chaonians" --
+    # neither the strong "interior" wording nor the weak "the following
+    # cities" wording matched this, so it silently inherited COASTAL from
+    # the preceding coastal-walk section and pulled a whole list of
+    # interior Epirote towns into that book.map's coastline trail.
+    text = "§ 3.13.5  Cities in the hinterland of Epiros: Chaonians\nAntigoneia . 45°15' . 39°10'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == INLAND
+
+
+def test_bare_hinterland_mention_in_boundary_prose_does_not_misclassify():
+    # "hinterland" naming the interior in passing, within a sentence whose
+    # own list-intro cue is "the shore is as follows" (confirmed §3.10.7),
+    # must stay coastal -- only the "cities/towns/villages ... hinterland"
+    # list-header idiom is a reliable inland signal on its own.
+    text = (
+        "§ 3.10.7  The Harpioi occupy the shore and the hinterland as far as "
+        "the river. The shore is as follows:\n"
+        "mouth of the Borysthenes . 57°30' . 48°30'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == COASTAL
+
+
 def test_bounded_by_without_direction_word_is_classified_boundary():
     text = "§ 2.14.1  UPPER PANNONIA\nOn the west, Upper Pannonia is bounded by Cetium mountain 15°00' . 46°00'\n"
     sections, resolved = _resolve(text)

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import math
 import re
 
-from .classify import ISLAND, is_named_island_walk
+from .classify import ISLAND, is_named_island_walk, starts_new_named_island
 from .parser import Section
 from .points import Point
 
@@ -337,19 +337,37 @@ def build_island_walks(sections: list[Section], resolved: dict[str, str],
             continue
         if not is_named_island_walk(section):
             continue
-        seq = [occurrence_index[(section.key, c.char_offset)] for c in section.citations]
-        runs = _split_into_runs(seq, cap)
-        runs = _stitch_runs(runs, cap)
-        for i, trail in enumerate(runs, start=1):
-            closed = _maybe_close_loop(trail, cap)
-            lines.append(Line(
-                id=f"island-walk-{section.key}-{i}",
-                kind="island",
-                book_map=section.book_map,
-                feature_name=None,
-                point_ids=[p.id for p in trail],
-                closed=closed,
-            ))
+        # A section can pack more than one named island's own walk back to
+        # back (confirmed §5.2.33: "Description of Karpathos:" then,
+        # mid-section, "Description of Rhodes island:") -- split there
+        # first, or the two islands' points get connected to each other by
+        # catalogue-order adjacency as if they were one landmass (confirmed
+        # bug: drew a self-crossing loop jumping between Karpathos and
+        # Rhodes). The first citation never triggers a split on its own --
+        # its heading is already what made is_named_island_walk true via
+        # section.lead_text.
+        groups: list[list[Point]] = [[]]
+        for citation in section.citations:
+            point = occurrence_index[(section.key, citation.char_offset)]
+            if groups[-1] and starts_new_named_island(citation.name_phrase):
+                groups.append([])
+            groups[-1].append(point)
+
+        seq_num = 0
+        for group in groups:
+            runs = _split_into_runs(group, cap)
+            runs = _stitch_runs(runs, cap)
+            for trail in runs:
+                seq_num += 1
+                closed = _maybe_close_loop(trail, cap)
+                lines.append(Line(
+                    id=f"island-walk-{section.key}-{seq_num}",
+                    kind="island",
+                    book_map=section.book_map,
+                    feature_name=None,
+                    point_ids=[p.id for p in trail],
+                    closed=closed,
+                ))
     return lines
 
 
