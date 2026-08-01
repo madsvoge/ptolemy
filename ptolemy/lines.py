@@ -19,7 +19,19 @@ from .points import Point
 # long tail (genuine jumps between disjoint stretches) without touching the
 # bulk of true adjacent-point edges.
 COASTLINE_CAP_DEG = 5.0
-RIVER_MOUNTAIN_CAP_DEG = 5.0
+# Rivers span far more ground between citations than coastal points do --
+# the Nile's junction-with-Astapos and lakes-outlet citations are >10
+# degrees apart, as is the Rha/Volga's mouth-to-boundary-mention gap.
+# Re-derived empirically against every consecutive same-name river gap in
+# this text: real gaps top out at ~11.2 degrees, while the one gap that
+# reaches all the way to 42.5 degrees is a confirmed *wrong* pairing (two
+# different rivers, Istros and Borysthenes, sharing a mention in one long
+# restating sentence -- fixed separately by having base-name extraction
+# prefer the name closest to the coordinate, not the first one it finds).
+# 15 degrees clears every genuine case with headroom but still rejects
+# that one confirmed mismatch.
+RIVER_CAP_DEG = 15.0
+MOUNTAIN_CAP_DEG = 5.0
 # A trail's two ends close into a loop only if they're both near in
 # absolute terms AND close relative to the trail's own total length --
 # otherwise two points that just happen to sit near each other on an open
@@ -170,6 +182,12 @@ _RIVER_TEMPLATES = [
     re.compile(r"\bmouths?\s+of\s+(?:the\s+)?([A-Z][\w-]*)\b"),
     re.compile(r"\bsources?\s+of\s+(?:the\s+)?(?:river\s+)?([A-Z][\w-]*)\b"),
     re.compile(r"\b([A-Z][\w-]*)\s+river\b"),
+    # "river Nile", "the river Astapos" -- reversed word order used
+    # throughout the Nile catalogue (§4.7.20-26), where "X river" is used
+    # everywhere else. Checked after "X river" so a plain "Nile river"
+    # citation still resolves the same way regardless of which template
+    # would have matched.
+    re.compile(r"\briver\s+([A-Z][\w-]*)\b"),
     re.compile(r"\bbend\s+of\s+(?:the\s+)?([A-Z][\w-]*)\b"),
 ]
 _MOUNTAIN_TEMPLATES = [
@@ -181,21 +199,38 @@ _MOUNTAIN_TEMPLATES = [
 _GENERIC_RIVER_WORDS = {"river", "the", "sea", "sources", "source"}
 
 
+def _last_template_match(phrase: str, templates: list[re.Pattern], exclude_words: set[str] = frozenset()) -> str | None:
+    # The name mentioned *last* in the phrase -- i.e. closest to the
+    # coordinate that follows it -- is what a citation is actually about.
+    # A long restating sentence often names an earlier river/range first
+    # ("from the mouth of the Istros until the mouth of the Borysthenes
+    # river...after the mouth of the Borysthenes, which is at <coord>")
+    # before settling on the one the coordinate is really for; taking the
+    # first match in document order wrongly grouped a Borysthenes citation
+    # under "Istros" this way (confirmed, book.map 3.10).
+    best: tuple[int, str] | None = None
+    for template in templates:
+        for m in template.finditer(phrase):
+            if m.group(1).lower() in exclude_words:
+                continue
+            if best is None or m.start() > best[0]:
+                best = (m.start(), m.group(1))
+    return best[1] if best else None
+
+
 def river_base_name(point: Point) -> str | None:
     for phrase in point.name_variants:
-        for template in _RIVER_TEMPLATES:
-            m = template.search(phrase)
-            if m and m.group(1).lower() not in _GENERIC_RIVER_WORDS:
-                return m.group(1)
+        name = _last_template_match(phrase, _RIVER_TEMPLATES, _GENERIC_RIVER_WORDS)
+        if name:
+            return name
     return None
 
 
 def mountain_base_name(point: Point) -> str | None:
     for phrase in point.name_variants:
-        for template in _MOUNTAIN_TEMPLATES:
-            m = template.search(phrase)
-            if m:
-                return m.group(1)
+        name = _last_template_match(phrase, _MOUNTAIN_TEMPLATES)
+        if name:
+            return name
     return None
 
 
@@ -227,12 +262,12 @@ def _build_named_feature_lines(points: list[Point], kind: str, base_name_fn, cap
     return lines
 
 
-def build_rivers(points: list[Point], cap: float = RIVER_MOUNTAIN_CAP_DEG) -> list[Line]:
+def build_rivers(points: list[Point], cap: float = RIVER_CAP_DEG) -> list[Line]:
     river_points = [p for p in points if "river" in p.tags or "river_mouth" in p.tags]
     return _build_named_feature_lines(river_points, "river", river_base_name, cap)
 
 
-def build_mountains(points: list[Point], cap: float = RIVER_MOUNTAIN_CAP_DEG) -> list[Line]:
+def build_mountains(points: list[Point], cap: float = MOUNTAIN_CAP_DEG) -> list[Line]:
     mountain_points = [p for p in points if "mountain" in p.tags]
     return _build_named_feature_lines(mountain_points, "mountain", mountain_base_name, cap)
 
@@ -254,7 +289,7 @@ def island_base_name(point: Point) -> str | None:
     return None
 
 
-def build_islands(points: list[Point], resolved: dict[str, str], cap: float = RIVER_MOUNTAIN_CAP_DEG) -> list[Line]:
+def build_islands(points: list[Point], resolved: dict[str, str], cap: float = MOUNTAIN_CAP_DEG) -> list[Line]:
     island_points = [
         p for p in points
         if "island" in p.tags and any(resolved[o.section_key] == ISLAND for o in p.occurrences)

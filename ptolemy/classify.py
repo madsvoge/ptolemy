@@ -26,14 +26,25 @@ BOUNDARY = "boundary"
 # "near", "around", ...), confirmed empirically against ~80 lead_texts
 # containing "island" in books 2-7 (see repo notes / commit history).
 _ISLAND_RE = re.compile(
-    r"\bislands?\b\s*(?:lying\s+|located\s+|lies?\s+)?(?:off|near|around|alongside|above|beyond)\b"
-    r"|\b(?:off|above|near|around|alongside|beyond)\b[^.\n]{0,60}\bislands?\b"
+    r"\bislands?\b\s*(?:lying\s+|located\s+|lies?\s+)?(?:off|near|around|alongside|above|beyond|in|along)\b"
+    r"|\b(?:off|above|near|around|alongside|beyond|along)\b[^.\n]{0,60}\bislands?\b"
     r"|\bthese\s+are\s+the\s+islands?\b"
     r"|\bthere\s+are\b[^.\n]{0,25}\bislands?\b"
     # "the cities of the [so-called] Cycladic islands" -- an island-group
     # appendix headed by its settlements rather than the bare word
     # "islands" acting as its own subject.
-    r"|\bcities?\s+of\s+the\b[^.\n]{0,30}\bislands?\b",
+    r"|\bcities?\s+of\s+the\b[^.\n]{0,30}\bislands?\b"
+    # Same colon-terminated list-intro convention already exploited for
+    # inland/mountain lists ("High seas islands of Africa are the
+    # following:") -- catches phrasings where "islands" isn't paired with
+    # one of the specific prepositions above. Plural "islands" only: a
+    # *list* of several islands is always plural, whereas singular "this
+    # island"/"the island" is how Ptolemy refers to the single landmass a
+    # coastal-walk or mountain-list section is itself describing (e.g.
+    # "the seacoast of this island...:", "the mountains in the island
+    # are:") -- those must not flip category just because a colon shows up
+    # somewhere later in an unrelated clause.
+    r"|\bislands\b[^.\n]{0,80}:",
     re.I,
 )
 
@@ -55,21 +66,28 @@ _MOUNTAIN_RE = re.compile(
 )
 
 _INLAND_RE = re.compile(
-    r"\binland\s+(?:cities|towns)\b"
-    r"|\binterior\s+(?:cities|towns)\b"
-    r"|\bcities?\s+of\s+the\s+interior\b"
+    r"\binland\s+(?:cities|towns|villages)\b"
+    r"|\binterior\s+(?:cities|towns|villages)\b"
+    r"|\b(?:cities|towns|villages)\s+of\s+the\s+interior\b"
     r"|\bin\s+the\s+interior\b"
     r"|\binterior\s+of\b"
     # Ptolemy names a tribe's own settlements with a colon-terminated
-    # "(the following|these) (towns|cities):" intro just as often as he
-    # uses the literal word "inland" -- this is the same list-introducing
-    # convention as the named-mountain-list cue above, just for
-    # settlements, and it recurs constantly interleaved *within* an
-    # otherwise coastal walk (confirmed empirically: ~30 of these carry no
-    # other signal and would otherwise wrongly inherit whatever type came
-    # before them).
-    r"|\b(?:the\s+)?(?:following|these)\s+(?:towns|cities)\b"
-    r"|\b(?:towns|cities):",
+    # "(the following|these) (towns|cities|villages):" intro just as often
+    # as he uses the literal word "inland" -- this is the same
+    # list-introducing convention as the named-mountain-list cue above,
+    # just for settlements, and it recurs constantly interleaved *within*
+    # an otherwise coastal walk (confirmed empirically: ~30 of these carry
+    # no other signal and would otherwise wrongly inherit whatever type
+    # came before them). "villages"/"komai" (the Greek word Kiesling
+    # sometimes leaves untranslated, e.g. "on the west bank of the river
+    # are the komai") is the same convention as "towns"/"cities" -- Ptolemy
+    # doesn't distinguish a village-list from a town-list structurally.
+    r"|\b(?:the\s+)?(?:following|these)\s+(?:towns|cities|villages|komai)\b"
+    r"|\b(?:towns|cities|villages|komai):"
+    # "komai" (Greek villages) is specific/technical enough a term that it
+    # doesn't need the "following/these" wrapper to be a reliable signal on
+    # its own -- e.g. "on the west bank of the river are the komai".
+    r"|\bkomai\b",
     re.I,
 )
 

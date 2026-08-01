@@ -14,7 +14,7 @@ from .export_json import write_export
 from .lines import build_all_lines
 from .parser import load_sections
 from .points import build_occurrence_index, dedup_points
-from .tag import propagate_river_context, tag_points
+from .tag import propagate_bare_connector_tags, propagate_river_context, tag_points
 from .visualize import render_map
 
 
@@ -26,6 +26,7 @@ def run(source_path: str, out_dir: str) -> dict:
     points = dedup_points(sections)
     tag_points(points, resolved)
     propagate_river_context(sections, points)
+    propagate_bare_connector_tags(sections, points)
     convert_points(points)
     occurrence_index = build_occurrence_index(points)
     lines = build_all_lines(sections, points, resolved, occurrence_index)

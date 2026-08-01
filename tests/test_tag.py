@@ -1,7 +1,7 @@
 from ptolemy.parser import parse_sections
 from ptolemy.points import dedup_points
 from ptolemy.classify import classify_sections
-from ptolemy.tag import tag_points, propagate_river_context
+from ptolemy.tag import propagate_bare_connector_tags, propagate_river_context, tag_points
 
 
 def _tagged_points(text, with_context_pass=False):
@@ -12,6 +12,18 @@ def _tagged_points(text, with_context_pass=False):
     if with_context_pass:
         propagate_river_context(sections, points)
     return {p.name: p for p in points}
+
+
+def _tagged_point_list(text, with_bare_connector_pass=True):
+    sections = parse_sections(text)
+    resolved = classify_sections(sections)
+    points = dedup_points(sections)
+    tag_points(points, resolved)
+    propagate_river_context(sections, points)
+    if with_bare_connector_pass:
+        propagate_bare_connector_tags(sections, points)
+    points.sort(key=lambda p: p.first_char_offset)
+    return points
 
 
 def test_river_mouth_in_coastal_section_gets_both_tags():
@@ -172,3 +184,52 @@ def test_river_context_pass_does_not_cascade_through_ordinary_coastal_cities():
     assert points["Luna"].tags == {"coast"}
     assert points["Genua"].tags == {"coast"}
     assert points["Tigullia"].tags == {"coast"}
+
+
+def test_bare_and_connector_inherits_previous_mountain_tag():
+    # "The extremes of the X mountains are at COORD1 and COORD2" -- the
+    # second extremity's whole name_phrase is just "and", since a
+    # citation's name is only the text back to the previous coordinate.
+    text = (
+        "§ 5.9.15  Boundary markers\n"
+        "The extremes of the Hippika mountains are at 74°00' . 54°00' and 81°00' . 52°00'\n"
+    )
+    points = _tagged_point_list(text)
+    assert len(points) == 2
+    assert points[0].tags == {"mountain"}
+    assert points[1].name.strip().lower() == "and"
+    assert points[1].tags == {"mountain"}
+
+
+def test_bare_and_connector_inherits_previous_river_tag():
+    text = (
+        "§ 2.9.1  A description of the coast\n"
+        "mouth of the Rhenus river 25°00' . 53°00' and 26°00' . 52°30'\n"
+    )
+    points = _tagged_point_list(text)
+    assert points[1].tags == {"river_mouth", "coast"}
+
+
+def test_bare_and_connector_does_not_apply_when_not_bare():
+    # "and" as part of a longer phrase (not the *entire* name_phrase) must
+    # not trigger inheritance -- only an exact, standalone "and".
+    text = (
+        "§ 5.9.15  Boundary markers\n"
+        "Mt. Kaukasos 74°00' . 54°00'\n"
+        "and then Vennicnium river source 12°00' . 62°00'\n"
+    )
+    points = _tagged_point_list(text)
+    assert points[0].tags == {"mountain"}
+    assert points[1].tags == {"river"}  # matched its own "source" keyword, not inherited
+
+
+def test_gates_and_pillars_are_not_coastal():
+    text = (
+        "§ 5.9.15  Boundary markers\n"
+        "A description of the coast\n"
+        "The Sarmatian Gates 81°00' . 48°30'\n"
+        "The Pillars of Alexander are at 80°00' . 51°30'\n"
+    )
+    points = _tagged_point_list(text)
+    for p in points:
+        assert p.tags == {"city"}, (p.name, p.tags)

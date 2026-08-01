@@ -61,7 +61,8 @@ _GENERIC_RIVER_POSITION_RE = re.compile(
 )
 _HARBOR_RE = re.compile(r"\bharbou?r\b|\bport\b", re.I)
 _COAST_NAME_RE = re.compile(r"\bpromontory\b|\bcape\b|\bheadland\b|\bbay\b|\bgulf\b", re.I)
-_LAKE_RE = re.compile(r"\blake\b", re.I)
+# Plural: "The more western of the lakes", "in it these lakes: Tritonitis".
+_LAKE_RE = re.compile(r"\blakes?\b", re.I)
 # Ptolemy routinely folds a tribe's capital into an otherwise coastal
 # section ("The Caletes occupy the northern coast...their city is
 # Iuliobona", "...the Osismi whose city is Vorgum") -- this idiom recurs
@@ -79,9 +80,24 @@ _TRIBAL_CITY_RE = re.compile(r"\bcity\s+is\b|\bcities?\s+is\b|\bwhose\s+city\b|\
 # backtracking jump that self-intersects the drawn line.
 _REFERENCE_MARKER_RE = re.compile(
     r"\bextreme\s+points?\b|\bextremity\b|\blimit\s+points?\b|\bend\s+points?\b"
-    r"|\balready\s+mentioned\b|\bterminal\s+points?\b|\bterminus\b",
+    r"|\balready\s+mentioned\b|\bterminal\s+points?\b|\bterminus\b"
+    # Named frontier landmarks Ptolemy uses to mark a boundary line
+    # ("The Pillars of Alexander are at...", "The Sarmatian Gates...",
+    # "The Albanian Gates...") -- proper nouns, but frontier markers, not
+    # coastal capes, and they cluster right alongside mountain-range
+    # extremity citations in boundary-heavy sections (confirmed 5.9.15).
+    r"|\bgates\b|\bpillars\s+of\b",
     re.I,
 )
+# "Branch of/from the Indus into the Sagapa mouth" names a distributary
+# *joining another named channel upstream in a delta* -- the coordinate is
+# an inland branch point, not the actual coastline. Confirmed on the
+# Indus (§7.1.28), matching the same delta structure already found on the
+# Ganges (§7.1.29-30) and Nile: threading these into the coastal walk
+# alongside the delta's real, separately-cited coastal mouths (§7.1.2's
+# "the seven mouths of the [river]") draws two near-parallel tracks along
+# the same stretch of coast ("duplicate coastline").
+_DISTRIBUTARY_BRANCH_RE = re.compile(r"\bbranch(?:es)?\b", re.I)
 
 
 def tag_point(point: Point, resolved: dict[str, str]) -> set[str]:
@@ -108,8 +124,11 @@ def tag_point(point: Point, resolved: dict[str, str]) -> set[str]:
     tags = {primary}
 
     # A river mouth cited while walking a coast is a real waypoint on that
-    # coastline, not just a river feature -- keep both roles.
-    if primary == "river_mouth" and COASTAL in section_types:
+    # coastline, not just a river feature -- keep both roles. Except a
+    # delta *branch* point ("Branch from the Indus into the Sagapa
+    # mouth"): its own name says it's an inland distributary junction,
+    # not the coastline itself.
+    if primary == "river_mouth" and COASTAL in section_types and not _DISTRIBUTARY_BRANCH_RE.search(name):
         tags.add("coast")
     # A point cited in a boundary/orientation section is a boundary marker
     # *in addition to* whatever its own name says (it's frequently also a
@@ -123,6 +142,59 @@ def tag_point(point: Point, resolved: dict[str, str]) -> set[str]:
 def tag_points(points: list[Point], resolved: dict[str, str]) -> None:
     for point in points:
         point.tags = tag_point(point, resolved)
+
+
+def _citation_stream(sections, points: list[Point]) -> list[tuple[Point, str]]:
+    """Every citation, in document order, as (canonical Point, the raw
+    name_phrase actually cited *here* -- not the point's overall trimmed
+    name, since a shared/deduped point can be cited with different wording
+    at different spots)."""
+    occurrence_index: dict[tuple[str, int], Point] = {}
+    for p in points:
+        for o in p.occurrences:
+            occurrence_index[(o.section_key, o.char_offset)] = p
+
+    stream: list[tuple[Point, str]] = []
+    for section in sections:
+        for citation in section.citations:
+            point = occurrence_index[(section.key, citation.char_offset)]
+            stream.append((point, citation.name_phrase))
+    return stream
+
+
+# A mountain-range or region's two extremity coordinates are routinely
+# cited as "COORD1 and COORD2" ("The extremes of the Hippika mountains are
+# at .74deg.00' . 54deg.00' and . 81deg.00' . 52deg.00'") -- since a
+# citation's name_phrase is only the text back to the previous coordinate,
+# the second extremity's own "name" ends up being just the bare connector
+# "and", carrying no keyword of its own at all. Confirmed widespread (60
+# points corpus-wide, not confined to one region) rather than a one-off.
+_BARE_CONNECTOR_RE = re.compile(r"^and$", re.I)
+
+
+def propagate_bare_connector_tags(sections, points: list[Point]) -> None:
+    """A citation whose entire name_phrase is the bare word "and" is
+    always the second half of the *same* feature as the citation
+    immediately before it in document order (a range/region's other
+    extremity) -- so it inherits that point's full tag set outright,
+    rather than falling back to the enclosing section's coastal default.
+
+    Uses a frozen snapshot of pre-pass tags for the same reason
+    propagate_river_context does: two consecutive bare-'and' citations
+    must not chain off of each other's *new* tags.
+    """
+    stream = _citation_stream(sections, points)
+    original_tags = {id(point): set(point.tags) for point, _ in stream}
+
+    for i, (point, phrase) in enumerate(stream):
+        if not _BARE_CONNECTOR_RE.match(phrase.strip().strip(",;.")):
+            continue
+        if i == 0:
+            continue
+        prev_point = stream[i - 1][0]
+        if id(prev_point) == id(point):
+            continue
+        point.tags = set(original_tags[id(prev_point)])
 
 
 def propagate_river_context(sections, points: list[Point]) -> None:
@@ -142,16 +214,7 @@ def propagate_river_context(sections, points: list[Point]) -> None:
     points, including plain coastal cities (Genua, Neapolis, Sidon...)
     nowhere near a river.
     """
-    occurrence_index: dict[tuple[str, int], Point] = {}
-    for p in points:
-        for o in p.occurrences:
-            occurrence_index[(o.section_key, o.char_offset)] = p
-
-    stream: list[tuple[Point, str]] = []  # (point, name_phrase actually cited here)
-    for section in sections:
-        for citation in section.citations:
-            point = occurrence_index[(section.key, citation.char_offset)]
-            stream.append((point, citation.name_phrase))
+    stream = _citation_stream(sections, points)
 
     original_riverish = {
         id(point) for point, _ in stream
