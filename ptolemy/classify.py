@@ -26,8 +26,8 @@ BOUNDARY = "boundary"
 # "near", "around", ...), confirmed empirically against ~80 lead_texts
 # containing "island" in books 2-7 (see repo notes / commit history).
 _ISLAND_RE = re.compile(
-    r"\bislands?\b\s*(?:lying\s+|located\s+|lies?\s+)?(?:off|near|around|alongside|above|beyond|in|along)\b"
-    r"|\b(?:off|above|near|around|alongside|beyond|along)\b[^.\n]{0,60}\bislands?\b"
+    r"\bislands?\b\s*(?:lying\s+|located\s+|lies?\s+)?(?:off|near|around|alongside|above|beyond|in|along|adjoining)\b"
+    r"|\b(?:off|above|near|around|alongside|beyond|along|adjoining)\b[^.\n]{0,60}\bislands?\b"
     r"|\bthese\s+are\s+the\s+islands?\b"
     r"|\bthere\s+are\b[^.\n]{0,25}\bislands?\b"
     # "the cities of the [so-called] Cycladic islands" -- an island-group
