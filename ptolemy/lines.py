@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 import math
 import re
 
-from .classify import COASTAL, ISLAND, MOUNTAIN
+from .classify import COASTAL, ISLAND, MOUNTAIN, is_named_island_walk
 from .parser import Section
 from .points import Point
 
@@ -297,6 +297,62 @@ def build_islands(points: list[Point], resolved: dict[str, str], cap: float = MO
     return _build_named_feature_lines(island_points, "island", island_base_name, cap)
 
 
+# ---------------------------------------------------------------------
+# Island walks: a single named island's own coastal walk, cited as a
+# self-contained appendix inside a shared/mainland book.map (Lesbos in
+# 5.2, Euboia in 3.14, Karpathos+Rhodes in 5.2) rather than as its own
+# book.map the way Ireland/Britain/Corsica/Sardinia/Sicily each get. Its
+# points don't carry the word "island" in their own name (they're plain
+# capes/cities -- "Kenaion promontory", "Chalkis on the Euripos"), so
+# build_islands' name-matching leaves them all standalone; connecting them
+# needs the same catalogue-order-adjacency approach build_coastlines uses,
+# just scoped per *section* rather than per book.map. That narrower scope
+# is the point: unlike a coastal walk, which is meant to chain every
+# coastal section of a book.map into one continuous line, each
+# island-classified section is already Ptolemy's own complete, bounded
+# description of one island (or small island group) -- stitching across
+# section boundaries here would bridge one island into whatever unrelated
+# section happens to sit next to it in the text (confirmed the bug this
+# fixes: §3.14.22 Euboia was bridging into its neighbouring sections
+# instead of closing into its own loop).
+#
+# Scoped further to is_named_island_walk() sections specifically, not
+# every ISLAND-classified section: an ISLAND section can equally be a
+# *list* of several distinct islands (Ebuda, the Cyclades, "islands in the
+# Ikarian sea"...), each cited with its own name and often just one or two
+# points -- blanket-connecting a whole such section by catalogue-order
+# adjacency draws a nonsense line hopping between unrelated islands
+# (confirmed: doing so surfaced 9 new self-intersecting lines across the
+# corpus). A named island's own walk is recognisable because it names
+# itself once in the section's lead ("Lesbos...described as follows",
+# "Description of Karpathos:") and then never repeats that name per point;
+# a list keeps re-naming each island as it goes, which is exactly what
+# is_named_island_walk's narrower pattern excludes.
+def build_island_walks(sections: list[Section], resolved: dict[str, str],
+                        occurrence_index: dict[tuple[str, int], Point],
+                        cap: float = COASTLINE_CAP_DEG) -> list[Line]:
+    lines: list[Line] = []
+    for section in sections:
+        if resolved[section.key] != ISLAND or not section.citations:
+            continue
+        if not is_named_island_walk(section):
+            continue
+        seq = [occurrence_index[(section.key, c.char_offset)] for c in section.citations]
+        runs = _split_into_runs(seq, cap)
+        runs = _stitch_runs(runs, cap)
+        for i, trail in enumerate(runs, start=1):
+            closed = _maybe_close_loop(trail, cap)
+            lines.append(Line(
+                id=f"island-walk-{section.key}-{i}",
+                kind="island",
+                book_map=section.book_map,
+                feature_name=None,
+                point_ids=[p.id for p in trail],
+                closed=closed,
+            ))
+    return lines
+
+
 def build_all_lines(sections: list[Section], points: list[Point], resolved: dict[str, str],
                      occurrence_index: dict[tuple[str, int], Point]) -> list[Line]:
     streams = build_citation_streams(sections, occurrence_index)
@@ -305,4 +361,5 @@ def build_all_lines(sections: list[Section], points: list[Point], resolved: dict
     lines += build_rivers(points)
     lines += build_mountains(points)
     lines += build_islands(points, resolved)
+    lines += build_island_walks(sections, resolved, occurrence_index)
     return lines

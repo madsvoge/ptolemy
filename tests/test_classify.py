@@ -73,6 +73,62 @@ def test_no_signal_never_inherits_into_island_or_mountain():
     assert resolved["2.2.3"] == COASTAL  # inherits from 2.2.1, skipping the mountain aside
 
 
+def test_named_island_walk_described_as_follows_is_classified_island():
+    # A single named island's own coastal walk, embedded as an appendix
+    # inside a shared/mainland book.map (confirmed §5.2.29, Lesbos) --
+    # signalled by "island" co-occurring with Ptolemy's own "described as
+    # follows" list-intro in the same lead sentence.
+    text = (
+        "§ 5.2.29  In the Aegean sea Lesbos, an Aiolian island, described as follows:\n"
+        "Sigrion promontory . 55°00' . 40°00'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == ISLAND
+
+
+def test_generic_described_as_follows_without_island_word_stays_coastal():
+    # The bare "described as follows"/"description...as follows" list-intro
+    # convention is not island-specific on its own -- plain coastal/
+    # boundary sections use it constantly -- so it must only fire paired
+    # with "island(s)" already present in the same lead.
+    text = "§ 6.3.2  this coast is described as follows:\nSome point . 79°30' . 30°15'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == COASTAL
+
+
+def test_bare_description_of_name_title_is_classified_island():
+    # "Description of Karpathos:" as a section's own bare lead (confirmed
+    # §5.2.33) -- distinct from the generic "Description of the west/south/
+    # ... side:" and "the description of {this side|which} is..." coastal
+    # conventions used everywhere else in this text.
+    text = "§ 5.2.33  Description of Karpathos:\nThoantion promontory . 57°00' . 35°20'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == ISLAND
+
+
+def test_description_of_the_side_stays_coastal():
+    text = "§ 3.2.3  Description of the west coast:\nSome point . 57°00' . 35°20'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == COASTAL
+
+
+def test_islands_on_its_coast_is_classified_island():
+    # "on" as the connecting preposition (confirmed §5.14.7, Cleides) --
+    # not part of the original preposition set, which missed this phrasing.
+    text = "§ 5.14.7  The islands on its coast are those called Cleides, their midpoint . 67°20' . 35°45'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == ISLAND
+
+
+def test_islands_adjacent_to_is_classified_island():
+    # Confirmed §3.14.22 (Euboia) and §3.15.11/§6.21.6 (both previously
+    # misclassified inland, since "adjacent" wasn't among the recognized
+    # island-list prepositions).
+    text = "§ 3.15.11  Islands adjacent to Crete\nSome island 57°00' . 35°20'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == ISLAND
+
+
 def test_no_signal_scoped_to_same_book_map():
     text = (
         "§ 2.2.1  The named mountains here are Foo\nMt. Foo 10°00' . 60°00'\n\n\n"

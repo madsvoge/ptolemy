@@ -25,9 +25,9 @@ BOUNDARY = "boundary"
 # list-introducing clause* alongside a locative preposition ("lying off",
 # "near", "around", ...), confirmed empirically against ~80 lead_texts
 # containing "island" in books 2-7 (see repo notes / commit history).
-_ISLAND_RE = re.compile(
-    r"\bislands?\b\s*(?:lying\s+|located\s+|lies?\s+)?(?:off|near|around|alongside|above|beyond|in|along|adjoining)\b"
-    r"|\b(?:off|above|near|around|alongside|beyond|along|adjoining)\b[^.\n]{0,60}\bislands?\b"
+_ISLAND_LIST_RE = re.compile(
+    r"\bislands?\b\s*(?:lying\s+|located\s+|lies?\s+)?(?:off|near|around|alongside|above|beyond|in|along|adjoining|on|adjacent(?:\s+to)?)\b"
+    r"|\b(?:off|above|near|around|alongside|beyond|along|adjoining|adjacent(?:\s+to)?)\b[^.\n]{0,60}\bislands?\b"
     r"|\bthese\s+are\s+the\s+islands?\b"
     r"|\bthere\s+are\b[^.\n]{0,25}\bislands?\b"
     # "the cities of the [so-called] Cycladic islands" -- an island-group
@@ -47,6 +47,39 @@ _ISLAND_RE = re.compile(
     r"|\bislands\b[^.\n]{0,80}:",
     re.I,
 )
+
+# A single named island's own coastal walk, embedded as an appendix inside
+# a shared/mainland book.map (Lesbos in 5.2, Euboia in 3.14, Karpathos in
+# 5.2) -- kept as its own pattern, separate from the island *list* intros
+# above, because lines.py needs to tell the two apart: a list of several
+# distinct islands (Ebuda, the Cyclades, "islands in the Ikarian sea"...)
+# must NOT have its points blanket-connected by catalogue-order adjacency
+# the way one island's own walk should be (confirmed: doing so for every
+# ISLAND-classified section drew nonsense self-intersecting lines across
+# unrelated islands cited back to back in the same list).
+_NAMED_ISLAND_WALK_RE = re.compile(
+    # "island" co-occurring with Ptolemy's own "described/description as
+    # follows" list-intro convention in the same lead sentence. That
+    # convention alone is not island-specific (plain coastal/boundary
+    # sections use it constantly, e.g. "the description of the coast is
+    # the following"), so it's only trusted paired with the word
+    # "island(s)" already present in the very same lead -- and NOT the
+    # similar-looking "with the following description" word order also
+    # used to open a single island within a larger list (§3.13.9, Korkyra),
+    # which must stay excluded since it's still list-scoped, not its own
+    # section.
+    r"(?=[^\n]*\bislands?\b)[^\n]*\b(?:described|description)\s+as\s+follows\b"
+    # "Description of <Name>[ island]:" as a section's own bare lead, e.g.
+    # "Description of Karpathos:" / "Description of Rhodes island:" --
+    # distinct from the generic "Description of the west/south/... side:"
+    # and "the description of {this side|this boundary|which} is..." coastal
+    # conventions (confirmed: every other "description of" in this text
+    # is followed by "the"/"this"/"which", never a bare proper noun).
+    r"|\bdescription\s+of\s+(?!the\b|this\b|which\b)[A-Za-z][\w\s]{0,30}?:",
+    re.I,
+)
+
+_ISLAND_RE = re.compile(_ISLAND_LIST_RE.pattern + "|" + _NAMED_ISLAND_WALK_RE.pattern, re.I)
 
 # Same reasoning as islands: a bare "mountain" mention (a boundary marker
 # named after a mountain range, e.g. "bounded ... by Adulas mountain") is
@@ -212,3 +245,14 @@ def classify_sections(sections: list[Section]) -> dict[str, str]:
             last_carryable[bm] = rtype
 
     return resolved
+
+
+def is_named_island_walk(section: Section) -> bool:
+    """True for a section that is one named island's own coastal walk
+    (Lesbos, Euboia, Karpathos...), as opposed to a section that lists
+    several distinct islands together (Ebuda, the Cyclades...). Only
+    meaningful for a section already resolved to ISLAND; lines.py uses
+    this to decide which island sections it's safe to connect by
+    catalogue-order adjacency (see build_island_walks).
+    """
+    return bool(_NAMED_ISLAND_WALK_RE.search(section.lead_text))

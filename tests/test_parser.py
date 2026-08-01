@@ -94,3 +94,40 @@ def test_bracketed_manuscript_variant_map_number_is_parsed():
     sections = parse_sections(text)
     assert sections[0].map == "8[9]"
     assert sections[0].book_map == "4.8[9]"
+
+
+def test_orphan_subheading_between_citations_attaches_to_next_citation():
+    # A section can pack more than one island/region walk, each opened by
+    # its own bare titled line with no coordinate of its own -- that line
+    # must not be silently dropped (§5.2.33, confirmed in the source text).
+    text = (
+        "§ 5.2.33  Description of Karpathos:\n"
+        "Thoantion promontory . 57°00' . 35°20'\n"
+        "Description of Rhodes island:\n"
+        "Panos promontory . 58°00' . 35°55'\n"
+    )
+    sections = parse_sections(text)
+    names = [c.name_phrase for c in sections[0].citations]
+    assert names[0] == "Thoantion promontory"
+    assert names[1] == "Description of Rhodes island:\nPanos promontory"
+
+
+def test_long_intro_sentence_ending_in_colon_does_not_leak_into_next_citation():
+    # Ptolemy also ends ordinary multi-clause sentences that merely
+    # introduce a sub-list with a colon ("...is the following:") -- unlike
+    # a real orphan title, that must NOT get pulled into the next
+    # citation's own name_phrase just because it also lacks a coordinate
+    # (confirmed regression: §3.8.1, boundary-description prose bleeding
+    # into an unrelated city name and flipping its section's classification).
+    text = (
+        "§ 3.8.1  Dacia\n"
+        "Dacia is bounded on the north by Sarmatia already mentioned, at . 53°00' . 48°30'\n"
+        "On the south by part of the Danube river from the fork of the Tibiskos river "
+        "as far as Axioupolis, from which point as far as Pontos and the river mouth "
+        "the Danube is called Istros. The position of this part is the following:\n"
+        "After the fork of the Tibiskos river the first bend to the south, 47°20' . 44°45'\n"
+    )
+    sections = parse_sections(text)
+    names = [c.name_phrase for c in sections[0].citations]
+    assert "mouth" not in names[1]
+    assert names[1] == "After the fork of the Tibiskos river the first bend to the south"

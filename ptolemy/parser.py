@@ -83,13 +83,43 @@ def extract_citations(text: str, base_offset: int = 0) -> list[Citation]:
     the previous citation, or (b) the start of the current line -- this
     keeps phrases like "from the Boreum promontory which is in" intact when
     a citation opens a line, without also dragging in unrelated lead-in
-    prose from earlier lines (e.g. a section's own title).
+    prose from earlier lines (e.g. a section's own title, or an unrelated
+    sentence of boundary-description prose several lines back).
+
+    The one exception: if the line immediately above is itself a short,
+    bare, coordinate-free title ending in ":" (e.g. "Description of Rhodes
+    island:", sitting between two citations because a section can pack more
+    than one island/region walk), that heading line is pulled in too --
+    otherwise it's silently dropped, belonging to neither the section's
+    lead_text nor any citation's own phrase, even though it's the only
+    thing naming what follows. The word-count cap is what keeps this
+    narrow: Ptolemy also uses a trailing colon to end ordinary multi-clause
+    sentences that merely *introduce* a sub-list ("...the river mouth the
+    Danube is called Istros. The position of this part is the
+    following:"), and those must NOT leak into the next citation's phrase
+    just because they also happen to lack a coordinate of their own
+    (confirmed regressed §3.8.1-4 without this cap, where a long sentence
+    of boundary-description prose several lines back was pulled into an
+    unrelated city's name_phrase) -- a real naming title, by contrast, is
+    always a short noun phrase.
     """
     citations: list[Citation] = []
     prev_end = 0
     for m in _COORD_PAIR.finditer(text):
         line_start = text.rfind("\n", 0, m.start()) + 1
         phrase_start = max(prev_end, line_start)
+        if prev_end != 0 and phrase_start == line_start and line_start > 0:
+            prev_line_end = line_start - 1
+            prev_line_start = text.rfind("\n", 0, prev_line_end) + 1
+            prev_line = text[prev_line_start:prev_line_end]
+            stripped = prev_line.strip()
+            if (
+                prev_line_start >= prev_end
+                and stripped.endswith(":")
+                and len(stripped.split()) <= 6
+                and not _COORD_PAIR.search(prev_line)
+            ):
+                phrase_start = prev_line_start
         name_phrase = text[phrase_start:m.start()].strip(" \t\n.,;:")
         citations.append(
             Citation(

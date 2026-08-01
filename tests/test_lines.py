@@ -89,6 +89,67 @@ def test_mountain_grouping_handles_mt_abbreviation():
     assert mountains[0].feature_name == "Taygeton"
 
 
+def test_island_section_closes_into_its_own_loop():
+    # A single named island's own coastal walk, embedded inside a shared/
+    # mainland book.map (confirmed §3.14.22, Euboia) -- its points don't
+    # carry "island" in their own name, so build_islands' name-matching
+    # leaves them all standalone; build_island_walks must connect them by
+    # catalogue order instead, scoped to this section only, and close the
+    # loop since the last point (Dion) lands right back near the first
+    # (Kenaion).
+    text = (
+        "§ 3.14.22  islands adjacent to Achaia in the Aegean sea, Euboia being large, "
+        "with a description as follows:\n"
+        "Kenaion promontory . 52°20' . 38°35'\n"
+        "Chalkis on the Euripos . 53°10' . 38°00'\n"
+        "Karystos . 54°30' . 37°40'\n"
+        "Dion promontory . 53°00' . 38°35'\n"
+    )
+    points, lines = _build(text)
+    walks = [l for l in lines if l.kind == "island" and l.id.startswith("island-walk-")]
+    assert len(walks) == 1
+    assert walks[0].closed is True
+    assert len(walks[0].point_ids) == 4
+
+
+def test_island_walk_does_not_bridge_into_the_next_section():
+    # Two separate named-island-walk sections sitting back to back (Lesbos,
+    # then Karpathos) must stay two separate trails, not one merged line --
+    # each section is Ptolemy's own bounded description of a single island,
+    # unlike coastal sections which are meant to chain across a whole
+    # book.map.
+    text = (
+        "§ 5.2.29  In the Aegean sea Lesbos, an Aiolian island, described as follows:\n"
+        "Sigrion promontory . 55°00' . 40°00'\n"
+        "Mytilene . 55°40' . 39°40'\n\n\n"
+        "§ 5.2.33  Description of Karpathos:\n"
+        "Thoantion promontory . 57°00' . 35°20'\n"
+        "Poseidion city . 57°20' . 35°25'\n"
+    )
+    points, lines = _build(text)
+    walks = [l for l in lines if l.kind == "island" and l.id.startswith("island-walk-")]
+    assert len(walks) == 2
+    ids_by_walk = [set(w.point_ids) for w in walks]
+    assert ids_by_walk[0].isdisjoint(ids_by_walk[1])
+
+
+def test_island_list_section_is_not_blanket_connected():
+    # A section that lists several distinct islands (each named as it
+    # goes) must NOT have its points blanket-connected by catalogue-order
+    # adjacency the way a single named island's own walk is -- confirmed
+    # bug: doing so for every ISLAND-classified section drew nonsense
+    # self-intersecting lines hopping between unrelated islands cited back
+    # to back in the same list (§5.2.30, Islands in the Ikarian sea).
+    text = (
+        "§ 5.2.30  Islands in the Ikarian sea:\n"
+        "Ikaros island . 56°45' . 37°20'\n"
+        "Myndos . 57°40' . 36°25'\n"
+    )
+    points, lines = _build(text)
+    walks = [l for l in lines if l.kind == "island" and l.id.startswith("island-walk-")]
+    assert walks == []
+
+
 def test_no_line_self_intersects_on_this_small_fixture():
     from shapely.geometry import LineString
     points, lines = _build(IRELAND_NORTH_WEST)
