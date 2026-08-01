@@ -102,3 +102,25 @@ def test_points_layer_has_boolean_tag_columns(tmp_path):
         assert row == (1,)
     finally:
         con.close()
+
+
+def test_a_separate_layer_exists_per_tag(tmp_path):
+    # A point's own "tags" column on the combined points layer is
+    # comma-joined (a point can carry more than one tag at once), which
+    # most GIS programs can't style or filter on directly -- a dedicated
+    # single-tag layer per tag sidesteps that entirely.
+    path = _build(tmp_path)
+    con = sqlite3.connect(path)
+    try:
+        layer_names = {
+            row[0] for row in con.execute(
+                "SELECT table_name FROM gpkg_contents WHERE table_name LIKE 'points_%'"
+            )
+        }
+        assert "points_coast" in layer_names
+        assert "points_river" not in layer_names  # no river points in this fixture
+
+        names = {row[0] for row in con.execute("SELECT name FROM points_coast")}
+        assert names == {"Boreum promontory", "Vennicnium promontory"}
+    finally:
+        con.close()

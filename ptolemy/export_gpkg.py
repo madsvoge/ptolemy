@@ -79,30 +79,52 @@ def build_line_layers(lines: list[Line], point_by_id: dict[str, Point]) -> dict[
     return layers
 
 
+def _point_row(p: Point, resolved: dict[str, str]) -> dict:
+    row = {
+        "id": p.id,
+        "name": p.name,
+        "name_variants": " | ".join(p.name_variants),
+        "book": int(p.book_map.split(".")[0]),
+        "map": p.book_map.split(".", 1)[1],
+        "book_map": p.book_map,
+        "tags": ",".join(sorted(p.tags)),
+        "num_occurrences": len(p.occurrences),
+        "section_keys": ",".join(sorted({o.section_key for o in p.occurrences})),
+        "section_types": ",".join(sorted({resolved[o.section_key] for o in p.occurrences})),
+        "lon_ferro": round(p.lon_ferro, 4),
+        "lat_ferro": round(p.lat_ferro, 4),
+        "south": p.south,
+        "is_synthetic": p.is_synthetic,
+    }
+    for tag in _ALL_TAGS:
+        row[f"is_{tag}"] = tag in p.tags
+    row["geometry"] = ShapelyPoint(p.lon_modern, p.lat_modern)
+    return row
+
+
 def build_points_layer(points: list[Point], resolved: dict[str, str]) -> gpd.GeoDataFrame:
-    rows = []
-    for p in points:
-        row = {
-            "id": p.id,
-            "name": p.name,
-            "name_variants": " | ".join(p.name_variants),
-            "book": int(p.book_map.split(".")[0]),
-            "map": p.book_map.split(".", 1)[1],
-            "book_map": p.book_map,
-            "tags": ",".join(sorted(p.tags)),
-            "num_occurrences": len(p.occurrences),
-            "section_keys": ",".join(sorted({o.section_key for o in p.occurrences})),
-            "section_types": ",".join(sorted({resolved[o.section_key] for o in p.occurrences})),
-            "lon_ferro": round(p.lon_ferro, 4),
-            "lat_ferro": round(p.lat_ferro, 4),
-            "south": p.south,
-            "is_synthetic": p.is_synthetic,
-        }
-        for tag in _ALL_TAGS:
-            row[f"is_{tag}"] = tag in p.tags
-        row["geometry"] = ShapelyPoint(p.lon_modern, p.lat_modern)
-        rows.append(row)
+    rows = [_point_row(p, resolved) for p in points]
     return gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326")
+
+
+def build_points_layers_by_tag(points: list[Point], resolved: dict[str, str]) -> dict[str, gpd.GeoDataFrame]:
+    """One layer per tag (points_coast, points_city, ...), each holding
+    only the points that carry that tag. A single-value-per-layer
+    membership test (is this point in the layer or not) works with plain
+    GIS layer visibility/symbology, where the combined "points" layer's
+    own multi-value "tags" column (comma-joined, since a point can be
+    both e.g. "river_mouth" and "coast") does not -- most GIS programs
+    can't style or filter on a column holding several values at once.
+    Points with no tags at all (shouldn't happen, but not enforced
+    upstream) simply appear in no per-tag layer; they're still in the
+    combined "points" layer."""
+    layers: dict[str, gpd.GeoDataFrame] = {}
+    for tag in _ALL_TAGS:
+        rows = [_point_row(p, resolved) for p in points if tag in p.tags]
+        if not rows:
+            continue
+        layers[f"points_{tag}"] = gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326")
+    return layers
 
 
 def build_sections_table(sections: list[Section], resolved: dict[str, str],
@@ -134,6 +156,7 @@ def write_geopackage(path: str, lines: list[Line], points: list[Point], resolved
     point_by_id = {p.id: p for p in points}
     layers = build_line_layers(lines, point_by_id)
     layers["points"] = build_points_layer(points, resolved)
+    layers.update(build_points_layers_by_tag(points, resolved))
     for layer_name, gdf in layers.items():
         if gdf.empty:
             continue
