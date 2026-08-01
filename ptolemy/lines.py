@@ -19,18 +19,18 @@ from .points import Point
 # long tail (genuine jumps between disjoint stretches) without touching the
 # bulk of true adjacent-point edges.
 COASTLINE_CAP_DEG = 5.0
-# Rivers span far more ground between citations than coastal points do --
-# the Nile's junction-with-Astapos and lakes-outlet citations are >10
-# degrees apart, as is the Rha/Volga's mouth-to-boundary-mention gap.
-# Re-derived empirically against every consecutive same-name river gap in
-# this text: real gaps top out at ~11.2 degrees, while the one gap that
-# reaches all the way to 42.5 degrees is a confirmed *wrong* pairing (two
-# different rivers, Istros and Borysthenes, sharing a mention in one long
-# restating sentence -- fixed separately by having base-name extraction
-# prefer the name closest to the coordinate, not the first one it finds).
-# 15 degrees clears every genuine case with headroom but still rejects
-# that one confirmed mismatch.
-RIVER_CAP_DEG = 15.0
+# A wider cap was tried here (15 degrees) specifically to connect the
+# Nile's own far-apart citations (junction-with-Astapos to the lakes
+# outlet, >10 degrees). Reverted: common river names repeat for
+# genuinely unrelated rivers (confirmed on Britain's own text -- two
+# *different* rivers both named "Alaunus", one on the north coast, one on
+# the south, 6.9 degrees apart), and distance alone can't tell that case
+# apart from "one very large river's own citations are just spread out" --
+# they look identical geometrically. Left unconnected is the safe default
+# per the brief's own guidance ("don't draw a confident line between two
+# things that just happen to share a name"); a big single-region river
+# like the Nile simply won't auto-connect end to end.
+RIVER_CAP_DEG = 5.0
 MOUNTAIN_CAP_DEG = 5.0
 # A trail's two ends close into a loop only if they're both near in
 # absolute terms AND close relative to the trail's own total length --

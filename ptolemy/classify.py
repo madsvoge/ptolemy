@@ -87,7 +87,15 @@ _INLAND_STRONG_RE = re.compile(
     # "komai" (Greek villages) is specific/technical enough a term that it
     # doesn't need a "following/these" wrapper to be a reliable signal on
     # its own -- e.g. "on the west bank of the river are the komai".
-    r"|\bkomai\b",
+    r"|\bkomai\b"
+    # "By [part of] the Euphrates river:" -- a river named purely as an
+    # orientation landmark for the interior settlement list that follows
+    # (confirmed §5.20.6, Babylonia: every city in the list is inland,
+    # river mouths/coast are never mentioned). A coastal section never
+    # uses a bare "by the X river:" as its own list header -- it always
+    # reaches for sea/coast/promontory/mouth-of vocabulary instead -- so
+    # this is safe as a strong-tier signal, not just a weak fallback.
+    r"|\bby\s+(?:part\s+of\s+)?the\s+[A-Za-z]+\s+river\s*:",
     re.I,
 )
 _INLAND_WEAK_RE = re.compile(
