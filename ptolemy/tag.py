@@ -67,7 +67,20 @@ _RIVER_RE = re.compile(
     # nearby) is this text's own way of citing a point partway along a
     # river's course, alongside its mouth and source. The separator
     # between "mid" and "point" varies (hyphen, en dash, space).
-    r"|\bmid.{0,2}points?\s+of\s+(?:its|the)\s+length\b",
+    r"|\bmid.{0,2}points?\s+of\s+(?:its|the)\s+length\b"
+    # "The part of the river where Lusitania begins", "Where the river
+    # touches the border of Lusitania" -- a boundary line that runs along a
+    # named river (Ana, Dourius) is traced waypoint by waypoint the same
+    # way a coastal walk is, but these particular waypoints don't repeat
+    # any of the specific river verbs above -- they just say "the river"
+    # plainly, as the sentence's own subject. Confirmed §2.4.2 and §2.5.1:
+    # each is one step in a mouth-to-source river-boundary chain (mouth,
+    # then this, then sources), and without a keyword of its own this
+    # fell through to the plain coastal-section default. Narrow enough not
+    # to catch a real coastal city that merely mentions a nearby river in
+    # passing (e.g. "Pitane; the river Euenos flows around it") -- those
+    # name a place first, they don't open with "the river" as the subject.
+    r"|\bpart\s+of\s+the\s+river\b|\bwhere\s+the\s+river\b|\briver\b[^.\n]{0,25}\btouches?\b|\btouches?\b[^.\n]{0,25}\briver\b",
     re.I,
 )
 # A handful of *generic, name-free* positional clauses Ptolemy uses to cite
@@ -126,10 +139,12 @@ _REFERENCE_MARKER_RE = re.compile(
     r"|\buntil\s+the\s+border\b"
     # Named frontier landmarks Ptolemy uses to mark a boundary line
     # ("The Pillars of Alexander are at...", "The Sarmatian Gates...",
-    # "The Albanian Gates...") -- proper nouns, but frontier markers, not
-    # coastal capes, and they cluster right alongside mountain-range
-    # extremity citations in boundary-heavy sections (confirmed 5.9.15).
-    r"|\bgates\b|\bpillars\s+of\b",
+    # "The Albanian Gates...", "The Altars of Caesar...") -- proper nouns,
+    # but frontier markers, not coastal capes, and they cluster right
+    # alongside mountain-range extremity citations in boundary-heavy
+    # sections (confirmed 5.9.15, 3.5.12: "Altars of Alexander"/"Altars of
+    # Caesar" both mark the same river-turn boundary point on the Tanais).
+    r"|\bgates\b|\bpillars\s+of\b|\baltars\s+of\b",
     re.I,
 )
 # "Branch of/from the Indus into the Sagapa mouth" names a distributary
@@ -222,31 +237,46 @@ def _citation_stream(sections, points: list[Point]) -> list[tuple[Point, str]]:
 # "and", carrying no keyword of its own at all. Confirmed widespread (60
 # points corpus-wide, not confined to one region) rather than a one-off.
 _BARE_CONNECTOR_RE = re.compile(r"^and$", re.I)
+# A whole *list* of ranges' extremities reuses that same "COORD1 and
+# COORD2" shape per range, but each subsequent range in the list is
+# introduced tersely as "[and] of [the] NAME" rather than repeating
+# "mountains" -- e.g. "The extremes of the Hippika mountains are at X and
+# Y; of the Keraunian Z and W; of Korax ...; and of the Kaukasos ...".
+# Confirmed §5.9.15: three ranges named this way (Keraunian, Korax,
+# Kaukasos) had none of their own citations carry the word "mountain" at
+# all, so every one of them -- and every bare "and" chained after them --
+# fell through to the section's coastal default.
+_BARE_NAMED_CONTINUATION_RE = re.compile(r"^(?:and\s+)?of\s+(?:the\s+)?[A-Za-z][\w-]*$", re.I)
 
 
 def propagate_bare_connector_tags(sections, points: list[Point]) -> None:
-    """A citation whose entire name_phrase is the bare word "and" is
-    always the second half of the *same* feature as the citation
-    immediately before it in document order (a range/region's other
-    extremity) -- so it inherits that point's full tag set outright,
-    rather than falling back to the enclosing section's coastal default.
+    """A citation whose entire name_phrase is the bare word "and", or a
+    bare "[and] of [the] NAME" continuation, is always the same feature as
+    the citation immediately before it in document order (a range/region's
+    other extremity, or the next range in the same extremities list) -- so
+    it inherits that point's *current* tag set outright, rather than
+    falling back to the enclosing section's coastal default.
 
-    Uses a frozen snapshot of pre-pass tags for the same reason
-    propagate_river_context does: two consecutive bare-'and' citations
-    must not chain off of each other's *new* tags.
+    Deliberately live, not frozen: a chain of several of these in a row
+    (as in §5.9.15's four-range list) must resolve link by link, each one
+    picking up the tag its immediate predecessor was *just* given. No
+    consecutive-connector run in this corpus is a case where that chaining
+    would be wrong (confirmed: no two bare "and" citations are ever
+    directly adjacent), so nothing is lost by not freezing here the way
+    propagate_river_context must.
     """
     stream = _citation_stream(sections, points)
-    original_tags = {id(point): set(point.tags) for point, _ in stream}
 
     for i, (point, phrase) in enumerate(stream):
-        if not _BARE_CONNECTOR_RE.match(phrase.strip().strip(",;.")):
+        cleaned = phrase.strip().strip(",;.")
+        if not (_BARE_CONNECTOR_RE.match(cleaned) or _BARE_NAMED_CONTINUATION_RE.match(cleaned)):
             continue
         if i == 0:
             continue
         prev_point = stream[i - 1][0]
         if id(prev_point) == id(point):
             continue
-        point.tags = set(original_tags[id(prev_point)])
+        point.tags = set(prev_point.tags)
 
 
 def propagate_river_context(sections, points: list[Point]) -> None:

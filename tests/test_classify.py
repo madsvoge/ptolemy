@@ -200,3 +200,13 @@ def test_manual_override_reclassifies_desert_cities_out_of_coastal():
     sections, resolved = _resolve(text)
     assert resolved[sections[0].key] == INLAND
     assert override_note(sections[0].key) is not None
+
+
+def test_bare_cities_are_colon_word_order_is_classified_inland():
+    # "The cities are:" / "whose towns are:" -- the same swapped-order
+    # list-intro convention as "the cities are these:", just without the
+    # "these"/"the following" qualifier at all (confirmed §5.9.16, ending
+    # a long tribal-ethnography aside about Sarmatia's unknown country).
+    text = "§ 5.9.16  Latitudes of Sarmatia toward the unknown country\nThe cities are:\nHexapolis . 72°00' . 55°40'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == INLAND

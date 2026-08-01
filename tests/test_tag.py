@@ -281,3 +281,66 @@ def test_real_river_mouth_still_tagged():
     text = "§ 2.2.1  A description of the coast\nmouth of the Vistula river 10°00' . 56°00'\n"
     points = _tagged_point_list(text)
     assert points[0].tags == {"river_mouth", "coast"}
+
+
+def test_river_boundary_line_generic_river_references_stay_river():
+    # A boundary line following a named river's own course (§2.4.2, §2.5.1)
+    # cites several waypoints that just say "the river" plainly, with none
+    # of the specific verb keywords (source/turn/bend/...) -- confirmed
+    # regression: these fell through to the coastal-section default.
+    text = (
+        "§ 2.4.2  A description of the coast\n"
+        "The eastern mouth of the river Ana 4°20' . 37°30'\n"
+        "Where the river touches the border of Lusitania 9°00' . 39°00'\n"
+        "The sources of the river 14°00' . 40°00'\n"
+    )
+    points = _tagged_point_list(text)
+    names = {p.name: p.tags for p in points}
+    assert "river" in names["Where the river touches the border of Lusitania"]
+    assert "coast" not in names["Where the river touches the border of Lusitania"]
+
+
+def test_part_of_the_river_is_tagged_river():
+    text = (
+        "§ 2.5.1  A description of the coast\n"
+        "The mouth of the river, which flows into the Outer Sea, is at 5°20' . 41°50'\n"
+        "The part of the river where Lusitania begins is at 9°10' . 41°20'\n"
+    )
+    points = _tagged_point_list(text)
+    p = next(p for p in points if "part of the river" in p.name)
+    assert p.tags == {"river"}
+
+
+def test_altars_of_x_is_a_reference_marker_not_coastal():
+    # "Altars of X" is Ptolemy's own frontier-marker naming convention,
+    # the same idiom as "Gates"/"Pillars of" -- confirmed §3.5.12, where
+    # "Altars of Caesar" restates the same river-turn boundary point as
+    # "Altars of Alexander" right before it.
+    text = (
+        "§ 3.5.12  A description of the coast\n"
+        "Below the turn of the Tanais river the Altars of Alexander were set up, at 63°00' . 57°00' "
+        "and the Altars of Caesar, at 68°00' . 56°30'\n"
+    )
+    points = _tagged_point_list(text)
+    assert points[0].tags == {"river"}
+    assert points[1].tags == {"city"}
+
+
+def test_bare_named_continuation_chains_through_a_whole_extremities_list():
+    # "The extremes of the Hippika mountains are at X and Y; of the
+    # Keraunian Z and W; of Korax ...; and of the Kaukasos ..." -- each
+    # subsequent range's own first extremity is a bare "[and] of [the]
+    # NAME" continuation with no "mountain" keyword of its own, and must
+    # chain correctly through the whole list, not just the first pair
+    # (confirmed §5.9.15).
+    text = (
+        "§ 5.9.15  A description of the coast\n"
+        "The extremes of the Hippika mountains are at 74°00' . 54°00' and 81°00' . 52°00';\n"
+        "of the Keraunian 82°00' . 49°30' and 84°00' . 52°00'\n"
+        "of Korax 69°00' . 48°00' and 75°00' . 48°00';\n"
+        "and of the Kaukasos 75°00' . 47°30'\n"
+        "and 85°00' . 48°00'\n"
+    )
+    points = _tagged_point_list(text)
+    for p in points:
+        assert p.tags == {"mountain"}, (p.name, p.tags)

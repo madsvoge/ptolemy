@@ -144,7 +144,14 @@ _INLAND_WEAK_RE = re.compile(
     # had no signal of its own at all and silently inherited whatever
     # coastal/inland type happened to be carried in from far earlier in
     # the book.map.
-    r"|\b(?:towns|cities|villages|komai)\s+are\s+(?:these|the\s+following)\b",
+    r"|\b(?:towns|cities|villages|komai)\s+are\s+(?:these|the\s+following)\b"
+    # The same swapped order again, but with the "these"/"the following"
+    # qualifier dropped entirely -- "The cities are:", "whose towns are:",
+    # "their towns are:" -- confirmed §5.9.16 ("...the Iaxamatai people.
+    # The cities are:") and several tribal-town idioms elsewhere ("whose
+    # towns are:", "whose cities are:") that don't use "its" the way the
+    # two dedicated patterns above already cover.
+    r"|\b(?:towns|cities|villages|komai)\s+are:",
     re.I,
 )
 
