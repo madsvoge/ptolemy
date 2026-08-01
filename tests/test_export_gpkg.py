@@ -2,8 +2,8 @@ import sqlite3
 
 from ptolemy.classify import classify_sections
 from ptolemy.coords import convert_points
-from ptolemy.export_gpkg import _line_geometry, write_geopackage
-from ptolemy.lines import build_all_lines
+from ptolemy.export_gpkg import _line_geometry, build_line_layers, write_geopackage
+from ptolemy.lines import Line, build_all_lines
 from ptolemy.parser import parse_sections
 from ptolemy.points import Point, build_occurrence_index, dedup_points
 from ptolemy.tag import propagate_bare_connector_tags, propagate_river_context, tag_points
@@ -141,3 +141,36 @@ def test_a_separate_layer_exists_per_tag(tmp_path):
         assert names == {"Boreum promontory", "Vennicnium promontory"}
     finally:
         con.close()
+
+
+def test_feature_closed_column_requires_every_bundled_trail_closed():
+    # A single book.map can have more than one disjoint coastline run
+    # bundled into the same feature (confirmed real cases: §3.10, §3.12,
+    # §4.5 -- one closed loop plus one genuinely separate short open
+    # fragment). The feature-level "closed" column must require *every*
+    # trail to be closed, not just at least one -- an OR here would call
+    # the whole feature "closed" even though part of its own drawn
+    # geometry visibly isn't.
+    pts = {
+        "A": Point(id="A", lon_ferro=0, lat_ferro=0, book_map="2.2", lon_modern=0.0, lat_modern=0.0),
+        "B": Point(id="B", lon_ferro=1, lat_ferro=0, book_map="2.2", lon_modern=1.0, lat_modern=0.0),
+        "C": Point(id="C", lon_ferro=1, lat_ferro=1, book_map="2.2", lon_modern=1.0, lat_modern=1.0),
+        "D": Point(id="D", lon_ferro=5, lat_ferro=5, book_map="2.2", lon_modern=5.0, lat_modern=5.0),
+        "E": Point(id="E", lon_ferro=6, lat_ferro=5, book_map="2.2", lon_modern=6.0, lat_modern=5.0),
+    }
+    lines = [
+        Line(id="l1", kind="coastline", book_map="2.2", feature_name=None,
+             point_ids=["A", "B", "C"], closed=True),
+        Line(id="l2", kind="coastline", book_map="2.2", feature_name=None,
+             point_ids=["D", "E"], closed=False),
+    ]
+    layers = build_line_layers(lines, pts)
+    row = layers["coastlines"].iloc[0]
+    assert row["closed"] == False
+    assert row["num_trails"] == 2
+
+    parts = list(row["geometry"].geoms)
+    closed_parts = [p for p in parts if list(p.coords)[0] == list(p.coords)[-1]]
+    open_parts = [p for p in parts if list(p.coords)[0] != list(p.coords)[-1]]
+    assert len(closed_parts) == 1
+    assert len(open_parts) == 1

@@ -63,10 +63,8 @@ def build_line_layers(lines: list[Line], point_by_id: dict[str, Point]) -> dict[
             "book_map": line.book_map,
             "feature_name": line.feature_name,
             "trails": [],
-            "closed": False,
         })
         bucket["trails"].append(([point_by_id[pid] for pid in line.point_ids], line.closed))
-        bucket["closed"] = bucket["closed"] or line.closed
 
     layers: dict[str, gpd.GeoDataFrame] = {}
     for layer_name, features in grouped.items():
@@ -78,7 +76,14 @@ def build_line_layers(lines: list[Line], point_by_id: dict[str, Point]) -> dict[
                 "kind": data["kind"],
                 "book_map": data["book_map"],
                 "feature_name": data["feature_name"],
-                "closed": data["closed"],
+                # True only if *every* trail bundled into this feature is
+                # its own closed ring -- a book.map can have more than one
+                # disjoint coastline run (confirmed §3.10, §3.12, §4.5: one
+                # closed loop plus one genuinely separate short open
+                # fragment that never found a stitch partner), and an OR
+                # here would call the whole feature "closed" even though
+                # part of it visibly isn't.
+                "closed": all(trail_closed for _t, trail_closed in data["trails"]),
                 "num_trails": len(data["trails"]),
                 "num_points": sum(len(t) for t, _closed in data["trails"]),
                 "point_names": " | ".join(p.name for t, _closed in data["trails"] for p in t),
