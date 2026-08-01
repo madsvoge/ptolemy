@@ -4,7 +4,7 @@ from ptolemy.classify import classify_sections
 from ptolemy.tag import tag_points
 from ptolemy.coords import convert_points
 from ptolemy.lines import build_all_lines
-from ptolemy.visualize import _loose_ends
+from ptolemy.visualize import _loose_ends, _ring_coords
 
 
 def _build(text):
@@ -31,3 +31,20 @@ def test_island_walk_loose_ends_are_flagged():
     points, lines = _build(text)
     ends = _loose_ends(lines)
     assert len(ends) == 2
+
+
+def test_ring_coords_closes_the_loop():
+    # A "closed" trail's own drawn geometry must actually repeat the first
+    # point at the end -- confirmed regression: `closed` was stored as
+    # metadata only and never used when plotting, so the real closing edge
+    # (e.g. Ireland's mouth of the Logia river back to Rhobogdium
+    # promontory) was never drawn at all, reading as a broken seam on the
+    # map despite the trail data being genuinely continuous.
+    coords = [(0.0, 0.0), (1.0, 0.0), (1.0, 1.0)]
+    assert _ring_coords(coords, closed=True) == coords + [coords[0]]
+    assert _ring_coords(coords, closed=False) == coords
+
+
+def test_ring_coords_leaves_short_trails_alone():
+    coords = [(0.0, 0.0), (1.0, 0.0)]
+    assert _ring_coords(coords, closed=True) == coords

@@ -62,6 +62,18 @@ def _loose_ends(lines: list[Line]) -> set[str]:
     return ends
 
 
+def _ring_coords(coords: list[tuple[float, float]], closed: bool) -> list[tuple[float, float]]:
+    """`closed` is metadata from the line-builder (the trail's own two
+    ends are close enough to treat as a loop) -- draw the actual closing
+    segment back to the start, or the loop reads as broken right at the
+    seam even though the data says it isn't (confirmed misread as "a
+    hole" in NE Ireland: the real closing edge, mouth of the Logia river
+    back to Rhobogdium promontory, was never drawn at all)."""
+    if closed and len(coords) > 2:
+        return coords + [coords[0]]
+    return coords
+
+
 def render_map(points: list[Point], lines: list[Line], out_path: str,
                 title: str = "Ptolemy's Geographica, reconstructed from topostext (Nobbe)",
                 book_map_filter: str | None = None, width_px: int = 2400,
@@ -87,6 +99,7 @@ def render_map(points: list[Point], lines: list[Line], out_path: str,
 
     for line in plot_lines:
         coords = [(point_by_id[pid].lon_modern, point_by_id[pid].lat_modern) for pid in line.point_ids]
+        coords = _ring_coords(coords, line.closed)
         xs, ys = zip(*coords)
         ax.plot(xs, ys, color=_COLORS[line.kind], linewidth=0.8, zorder=1)
 

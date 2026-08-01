@@ -40,8 +40,17 @@ def _feature_id(line: Line) -> str:
     return f"{line.book_map}-{line.feature_name}"
 
 
-def _line_geometry(trail: list[Point]) -> LineString:
-    return LineString([(p.lon_modern, p.lat_modern) for p in trail])
+def _line_geometry(trail: list[Point], closed: bool) -> LineString:
+    coords = [(p.lon_modern, p.lat_modern) for p in trail]
+    # `closed` is metadata from the line-builder (the trail's own two ends
+    # are close enough to treat as a loop) -- the geometry itself has to
+    # actually repeat the first point at the end for that to be true,
+    # or QGIS renders exactly the same broken-looking seam this was
+    # confirmed to produce (NE Ireland: the real closing edge was never
+    # part of the drawn geometry at all, despite "closed" saying it was).
+    if closed and len(coords) > 2:
+        coords = coords + [coords[0]]
+    return LineString(coords)
 
 
 def build_line_layers(lines: list[Line], point_by_id: dict[str, Point]) -> dict[str, gpd.GeoDataFrame]:
@@ -56,14 +65,14 @@ def build_line_layers(lines: list[Line], point_by_id: dict[str, Point]) -> dict[
             "trails": [],
             "closed": False,
         })
-        bucket["trails"].append([point_by_id[pid] for pid in line.point_ids])
+        bucket["trails"].append(([point_by_id[pid] for pid in line.point_ids], line.closed))
         bucket["closed"] = bucket["closed"] or line.closed
 
     layers: dict[str, gpd.GeoDataFrame] = {}
     for layer_name, features in grouped.items():
         rows = []
         for feature_id, data in features.items():
-            geom = MultiLineString([_line_geometry(trail) for trail in data["trails"]])
+            geom = MultiLineString([_line_geometry(trail, trail_closed) for trail, trail_closed in data["trails"]])
             rows.append({
                 "feature_id": feature_id,
                 "kind": data["kind"],
@@ -71,8 +80,8 @@ def build_line_layers(lines: list[Line], point_by_id: dict[str, Point]) -> dict[
                 "feature_name": data["feature_name"],
                 "closed": data["closed"],
                 "num_trails": len(data["trails"]),
-                "num_points": sum(len(t) for t in data["trails"]),
-                "point_names": " | ".join(p.name for trail in data["trails"] for p in trail),
+                "num_points": sum(len(t) for t, _closed in data["trails"]),
+                "point_names": " | ".join(p.name for t, _closed in data["trails"] for p in t),
                 "geometry": geom,
             })
         layers[layer_name] = gpd.GeoDataFrame(rows, geometry="geometry", crs="EPSG:4326")

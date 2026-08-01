@@ -2,10 +2,10 @@ import sqlite3
 
 from ptolemy.classify import classify_sections
 from ptolemy.coords import convert_points
-from ptolemy.export_gpkg import write_geopackage
+from ptolemy.export_gpkg import _line_geometry, write_geopackage
 from ptolemy.lines import build_all_lines
 from ptolemy.parser import parse_sections
-from ptolemy.points import build_occurrence_index, dedup_points
+from ptolemy.points import Point, build_occurrence_index, dedup_points
 from ptolemy.tag import propagate_bare_connector_tags, propagate_river_context, tag_points
 
 TEXT = """§ 2.2.1  Setting of Hivernia
@@ -102,6 +102,23 @@ def test_points_layer_has_boolean_tag_columns(tmp_path):
         assert row == (1,)
     finally:
         con.close()
+
+
+def test_line_geometry_closes_the_ring_when_closed():
+    # A "closed" trail's own exported geometry must actually repeat the
+    # first point at the end, or QGIS renders the same broken-looking seam
+    # this was confirmed to produce (NE Ireland: the real closing edge was
+    # never part of the drawn geometry, despite the "closed" column saying
+    # it was).
+    pts = [
+        Point(id="P1", lon_ferro=0, lat_ferro=0, book_map="2.2", lon_modern=0.0, lat_modern=0.0),
+        Point(id="P2", lon_ferro=1, lat_ferro=0, book_map="2.2", lon_modern=1.0, lat_modern=0.0),
+        Point(id="P3", lon_ferro=1, lat_ferro=1, book_map="2.2", lon_modern=1.0, lat_modern=1.0),
+    ]
+    closed_geom = _line_geometry(pts, closed=True)
+    assert list(closed_geom.coords)[0] == list(closed_geom.coords)[-1]
+    open_geom = _line_geometry(pts, closed=False)
+    assert list(open_geom.coords)[0] != list(open_geom.coords)[-1]
 
 
 def test_a_separate_layer_exists_per_tag(tmp_path):
