@@ -40,7 +40,13 @@ _LOOSE_END_COLOR = "#e63232"
 _LOOSE_END_LABEL = "open trail end"
 _STITCH_COLOR = "#c026d3"
 _STITCH_LABEL = "suggested stitch"
-_GAP_COLOR = "#f59e0b"
+# Deliberately not another shade of orange/gold: at small marker sizes on
+# a dense map this was getting mistaken for "island" points (#d4a017,
+# visually close to the old #f59e0b) despite being a completely different
+# concept -- an "X" marker in near-black is unmistakable at any size and
+# doesn't compete with any existing color in the legend.
+_GAP_COLOR = "#111111"
+_GAP_MARKER = "X"
 _GAP_LABEL = "large internal gap"
 # Just above the corpus-wide 95th percentile edge length (~2.3 degrees) --
 # high enough that ordinary point-to-point spacing never trips it, low
@@ -133,7 +139,7 @@ def render_map(points: list[Point], lines: list[Line], out_path: str,
     gap_xs = [point_by_id[pid].lon_modern for pid in gap_ends]
     gap_ys = [point_by_id[pid].lat_modern for pid in gap_ends]
     if gap_xs:
-        ax.scatter(gap_xs, gap_ys, s=10, color=_GAP_COLOR, alpha=0.9,
+        ax.scatter(gap_xs, gap_ys, s=14, color=_GAP_COLOR, marker=_GAP_MARKER, alpha=0.9,
                    label=_GAP_LABEL, zorder=3)
 
     for i, s in enumerate(plot_stitches):
