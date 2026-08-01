@@ -37,7 +37,7 @@ def run(source_path: str, out_dir: str) -> dict:
     )
     write_geopackage(
         os.path.join(out_dir, "ptolemy.gpkg"),
-        lines, points, resolved,
+        lines, points, resolved, sections,
     )
     render_map(points, lines, os.path.join(out_dir, "ptolemy_map.png"))
     for label, book_map in (("ireland", "2.2"), ("britain", "2.3"), ("italy", "3.1")):
