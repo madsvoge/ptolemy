@@ -24,8 +24,23 @@ _MOUNTAIN_NAME_RE = re.compile(r"\bmounts?\b|\bmountain|\bmt\.?\s", re.I)
 # often given as "the X Mouth" (a proper noun in its own right, e.g. "the
 # Kambyson Mouth") with no "of" at all -- and the plural "Mouths of the
 # river X" (a delta with more than one outlet) was being missed entirely
-# by a singular-only "mouth of".
-_RIVER_MOUTH_RE = re.compile(r"\bmouths?\s+of\b|\bmouths?\b|\bestuary\b|\boutlet\b", re.I)
+# by a singular-only "mouth of". Except "mouth of Pontos": Pontos is the
+# Black Sea itself, not a river, and this idiom for the Bosporos strait
+# recurs 3 times in the text -- twice as a *restated boundary/reference
+# point* shared between two different regions' descriptions ("the mouth of
+# Pontos...at 55°00'.44°40'", cited identically in both §3.10.3's "limit
+# point toward Thrace" and §3.11.3's "until the border with lower Moesia"),
+# and only once as a real coastal waypoint (Byzantion). Matching the bare
+# word there wrongly gave the two boundary restatements a "river_mouth"
+# primary tag, which took priority over _REFERENCE_MARKER_RE ever being
+# consulted and pulled them into the coastal walk as if they were fresh,
+# adjacent waypoints -- confirmed self-intersecting the drawn Thracian
+# coastline. Byzantion doesn't need the river_mouth tag to be recognized as
+# coastal anyway: it falls through to the plain coastal-section default.
+_RIVER_MOUTH_RE = re.compile(
+    r"\bmouths?\s+of\b(?!\s+Pontos\b)|\bmouths?\b(?!\s+of\s+Pontos\b)|\bestuary\b|\boutlet\b",
+    re.I,
+)
 _RIVER_RE = re.compile(
     r"\bsources?\b|\bspring\b|\bbends?\b|\bconfluence\b|\bforks?\b|\bbranch(?:es)?\b"
     r"|\bjunctions?\b|\bbifurcat\w*\b|\bunites?\b|\bunion\b"
@@ -100,6 +115,15 @@ _REFERENCE_MARKER_RE = re.compile(
     # Thessalian end, cited early as an orientation marker), which is
     # exactly the shape of jump that self-intersects a drawn coastline.
     r"|\buntil\s+the\s+end\b"
+    # "...by the onward shores of Pontos until the border with lower
+    # Moesia, at..." -- the same self-referencing boundary-endpoint idiom
+    # as "until the end", just naming the neighbouring region instead.
+    # Confirmed on Thrace's own eastern boundary (3.11.3): this citation's
+    # coordinate sits far north of where the section's real coastal walk
+    # resumes right after it ("From which border the description is the
+    # following: After Mesembria..."), which is exactly the shape of jump
+    # that self-intersects a drawn coastline.
+    r"|\buntil\s+the\s+border\b"
     # Named frontier landmarks Ptolemy uses to mark a boundary line
     # ("The Pillars of Alexander are at...", "The Sarmatian Gates...",
     # "The Albanian Gates...") -- proper nouns, but frontier markers, not

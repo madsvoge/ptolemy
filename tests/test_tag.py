@@ -245,3 +245,39 @@ def test_gates_and_pillars_are_not_coastal():
     points = _tagged_point_list(text)
     for p in points:
         assert p.tags == {"city"}, (p.name, p.tags)
+
+
+def test_until_the_border_is_a_reference_marker_not_coastal():
+    # "...until the border with lower Moesia, at..." (confirmed §3.11.3) is
+    # a boundary line's own restated endpoint, not a fresh coastal
+    # waypoint -- the same idiom as "until the end" already handled, just
+    # naming the neighbouring region instead.
+    text = (
+        "§ 3.11.3  A description of the coast\n"
+        "On the east by the Propontis until the border with lower Moesia, at 55°00' . 44°40'\n"
+    )
+    points = _tagged_point_list(text)
+    assert points[0].tags == {"city"}
+
+
+def test_mouth_of_pontos_is_not_a_river_mouth():
+    # "Pontos" is the Black Sea itself, not a river -- "mouth of Pontos" is
+    # Ptolemy's idiom for the Bosporos strait, confirmed used identically
+    # as a restated boundary/reference point from two different regions'
+    # descriptions (§3.10.3 and §3.11.3) sharing the same coordinate.
+    # Matching it as a literal river mouth gave those restatements a
+    # "river_mouth" primary tag before _REFERENCE_MARKER_RE ever got
+    # consulted, pulling them into the coastal walk as fresh waypoints and
+    # self-intersecting the drawn line.
+    text = (
+        "§ 3.11.3  A description of the coast\n"
+        "the mouth of Pontos, at the limit point 55°00' . 44°40'\n"
+    )
+    points = _tagged_point_list(text)
+    assert points[0].tags == {"city"}
+
+
+def test_real_river_mouth_still_tagged():
+    text = "§ 2.2.1  A description of the coast\nmouth of the Vistula river 10°00' . 56°00'\n"
+    points = _tagged_point_list(text)
+    assert points[0].tags == {"river_mouth", "coast"}

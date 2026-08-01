@@ -186,3 +186,17 @@ def test_no_override_note_for_ordinary_sections():
     text = "§ 2.2.1  A description of the coast\nBoreum promontory . 11°00' . 61°00'\n"
     sections, resolved = _resolve(text)
     assert override_note(sections[0].key) is None
+
+
+def test_manual_override_reclassifies_desert_cities_out_of_coastal():
+    # §4.6.24's own lead ("...in the coastal section, as follows:") never
+    # matched any signal of its own (the classifier's coast check needs the
+    # standalone word "coast", not "coastal"), so the section was silently
+    # inheriting a stale coastal type from an unrelated, zero-citation
+    # tribal aside 8 sections earlier. Confirmed by manual review: its own
+    # coordinates run a north-south Saharan corridor matching the "Interior
+    # of Libya" framing given for the whole book.map.
+    text = "§ 4.6.24  Named cities in the country, in the coastal section, as follows:\nAutolala . 10° . 23°50'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == INLAND
+    assert override_note(sections[0].key) is not None

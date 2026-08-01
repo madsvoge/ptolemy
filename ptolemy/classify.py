@@ -245,6 +245,22 @@ SECTION_OVERRIDES: dict[str, tuple[str, str]] = {
         "ordinary coastal section, so this can't be reached by a general "
         "text rule; confirmed by manual review only.",
     ),
+    "4.6.24": (
+        INLAND,
+        "Own lead reads \"...in the coastal section, as follows:\", which "
+        "reads as Ptolemy's own administrative label for a named district, "
+        "not a declared coastal walk -- \"coastal\" here doesn't even match "
+        "the classifier's own coast-word check (it needs the standalone "
+        "word \"coast\", not \"coastal\"), so this section had no signal of "
+        "its own at all and was silently inheriting a stale 'coastal' type "
+        "carried from an unrelated, zero-citation tribal-ethnography aside "
+        "eight sections earlier (§4.6.17, 'the smaller ethnic groups... "
+        "occupy the coast') that has nothing to do with these particular "
+        "cities. Its own coordinates (23°50'N down to 12°15'N, a "
+        "north-south desert corridor) match the 'Interior of Libya' framing "
+        "given for the whole book.map at §4.6.1, not any real coastline; "
+        "confirmed by manual review only.",
+    ),
 }
 
 
