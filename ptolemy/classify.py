@@ -82,7 +82,10 @@ _INLAND_STRONG_RE = re.compile(
     r"\binlands?\s+(?:cities|towns|villages)\b"
     r"|\binterior\s+(?:cities|towns|villages)\b"
     r"|\b(?:cities|towns|villages)\s+of\s+the\s+interior\b"
-    r"|\bin\s+the\s+interior\b"
+    # "in the interior" and "in the Cretan interior" (a regional adjective
+    # inserted between "the" and "interior") -- confirmed §3.15.10,
+    # "Cities in the Cretan interior:".
+    r"|\bin\s+the\s+(?:[\w-]+\s+)?interior\b"
     r"|\binterior\s+of\b"
     # "komai" (Greek villages) is specific/technical enough a term that it
     # doesn't need a "following/these" wrapper to be a reliable signal on
