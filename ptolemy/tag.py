@@ -49,6 +49,13 @@ _RIVER_RE = re.compile(
     # specifically (as opposed to an ambiguous bare "turn towards the
     # east", handled separately below via its neighbours in the stream).
     r"|\bflows?\s+into\b|\bjoins?\b|\bsplits?\s+into\b"
+    # "The one through Babylon connects at COORD" -- another river-joining
+    # synonym (confirmed §5.20.2, a tributary of the Euphrates). Deliberately
+    # "connects at" specifically, not bare "connects?": "connect" alone has
+    # an unrelated administrative sense elsewhere in this text ("The sides
+    # of Lugdunensis which connect to Aquitania..."), and only the
+    # coordinate-anchored "at" form is this river-joining idiom.
+    r"|\bconnects?\s+at\b"
     r"|\briver\b[^.\n]{0,25}\bturns?\b|\bturns?\b[^.\n]{0,25}\briver\b"
     r"|\bturn\s+of\s+the\s+river\b"
     # "Beginning of the river" / "Head of the river" -- both confirmed
@@ -120,6 +127,11 @@ _TRIBAL_CITY_RE = re.compile(r"\bcity\s+is\b|\bcities?\s+is\b|\bwhose\s+city\b|\
 _REFERENCE_MARKER_RE = re.compile(
     r"\bextreme\s+points?\b|\bextremity\b|\blimit\s+points?\b|\bend\s+points?\b"
     r"|\balready\s+mentioned\b|\bterminal\s+points?\b|\bterminus\b"
+    # "The limit on the side of Kolchis is at COORD" -- another restated
+    # boundary-line-endpoint idiom, sibling to "limit point" above but
+    # without the word "point" (confirmed §5.9.7, right after "mouth of
+    # the Korax river", the boundary's own starting landmark).
+    r"|\blimit\s+on\s+the\s+side\s+of\b"
     # "...along the line on this side along Epiros until the end, at
     # position..." -- a boundary line's own endpoint, phrased without any
     # of the "limit/extreme/end point" wording above. Confirmed on
@@ -137,6 +149,11 @@ _REFERENCE_MARKER_RE = re.compile(
     # following: After Mesembria..."), which is exactly the shape of jump
     # that self-intersects a drawn coastline.
     r"|\buntil\s+the\s+border\b"
+    # "...to the part of this line at COORD" -- another restated
+    # boundary-line-position idiom, sibling to "limit point of this line
+    # at..." (already covered above by "limit points?"). Confirmed
+    # §5.17.2, Arabia Petraia's own eastern boundary.
+    r"|\bpart\s+of\s+this\s+line\b"
     # Named frontier landmarks Ptolemy uses to mark a boundary line
     # ("The Pillars of Alexander are at...", "The Sarmatian Gates...",
     # "The Albanian Gates...", "The Altars of Caesar...") -- proper nouns,
@@ -158,14 +175,38 @@ _REFERENCE_MARKER_RE = re.compile(
 _DISTRIBUTARY_BRANCH_RE = re.compile(r"\bbranch(?:es)?\b", re.I)
 
 
+def _last_match_start(pattern: re.Pattern, text: str) -> int:
+    matches = list(pattern.finditer(text))
+    return matches[-1].start() if matches else -1
+
+
 def tag_point(point: Point, resolved: dict[str, str]) -> set[str]:
     name = " ".join(point.name_variants)
     section_types = {resolved[o.section_key] for o in point.occurrences}
 
+    # A long boundary-restatement sentence routinely names a river mouth
+    # as the orientation landmark a boundary line *starts from*, before
+    # going on to give the coordinate of the line's actual endpoint (a
+    # "limit point"/"extreme point"/etc.) -- confirmed §4.1.8: "...south
+    # from the Malva river mouth to the limit point at COORD". A bare
+    # river-mouth keyword match alone can't tell that apart from a
+    # citation that's genuinely a river mouth restated *after* an earlier,
+    # unrelated reference marker in the same sentence (confirmed just as
+    # common, e.g. §5.12.1: "...from the limit point at Iberia to the
+    # Hyrkanian sea at the mouth of the Kyros river at COORD", where the
+    # coordinate *is* the river mouth). Whichever keyword sits closest to
+    # the coordinate that follows -- i.e. is mentioned *last* -- is what
+    # the citation is actually about; same "last match wins" principle
+    # already used by river_base_name/mountain_base_name for the same
+    # reason.
+    river_mouth_hit = bool(_RIVER_MOUTH_RE.search(name))
+    if river_mouth_hit and _REFERENCE_MARKER_RE.search(name):
+        river_mouth_hit = _last_match_start(_RIVER_MOUTH_RE, name) > _last_match_start(_REFERENCE_MARKER_RE, name)
+
     explicit_checks = [
         ("island", bool(_ISLAND_NAME_RE.search(name)) or ISLAND in section_types),
         ("mountain", bool(_MOUNTAIN_NAME_RE.search(name)) or MOUNTAIN in section_types),
-        ("river_mouth", bool(_RIVER_MOUTH_RE.search(name))),
+        ("river_mouth", river_mouth_hit),
         ("river", bool(_RIVER_RE.search(name))),
         ("harbor", bool(_HARBOR_RE.search(name))),
         ("coast", bool(_COAST_NAME_RE.search(name))),

@@ -94,7 +94,22 @@ _MOUNTAIN_RE = re.compile(
     # A bare title like "Mountains in the Peloponnese" -- same
     # list-heading convention as "Mountains in this section:", just
     # naming the region instead of saying "this section".
-    r"|^mountains?\s+(?:in|of)\b",
+    r"|^mountains?\s+(?:in|of)\b"
+    # "The extremes of the Hippika mountains are at COORD and COORD" --
+    # confirmed §5.9.15, a whole list of ranges each cited by name plus
+    # its own two extremity coordinates. Narrow window (15 chars) so this
+    # doesn't fire on an unrelated "mountains...are at" many words later
+    # in a long boundary sentence (confirmed distinct from §4.5.19's "the
+    # Libyan mountains..., the end points of which are at", which stays
+    # boundary/coastal as intended).
+    r"|\bmountains?\b.{0,15}\bare\s+at\b"
+    # "The mountains in this division are thus named:—" (confirmed
+    # §7.2.8) -- the same list-intro convention as "...are called:", just
+    # with "named" and enough words in between that the 15-char window
+    # above doesn't reach it. "thus named" is rare and specific enough in
+    # this text (2 uses total, the other about cities not mountains) that
+    # requiring only "mountains" anywhere earlier in the same line is safe.
+    r"|\bmountains?\b[^.\n]*\bthus\s+named\b",
     re.I,
 )
 

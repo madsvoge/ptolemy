@@ -344,3 +344,73 @@ def test_bare_named_continuation_chains_through_a_whole_extremities_list():
     points = _tagged_point_list(text)
     for p in points:
         assert p.tags == {"mountain"}, (p.name, p.tags)
+
+
+def test_river_mouth_before_reference_marker_loses_to_the_marker():
+    # "...south from the Malva river mouth to the limit point at COORD"
+    # (confirmed §4.1.8) -- the river mouth is only the boundary line's
+    # own starting landmark; the coordinate actually cited is the limit
+    # point mentioned *after* it. Whichever keyword sits closest to the
+    # coordinate is what the citation is really about.
+    text = (
+        "§ 4.1.8  A description of the coast\n"
+        "The eastern side is bordered by Mauritania Caesarensis south from the Malva river mouth "
+        "to the limit point at 11°40' . 26°00'\n"
+    )
+    points = _tagged_point_list(text)
+    assert points[0].tags == {"city"}
+
+
+def test_river_mouth_after_reference_marker_still_wins():
+    # "...from the limit point at Iberia to the Hyrkanian sea at the mouth
+    # of the Kyros river at COORD" (confirmed §5.12.1) -- here the
+    # coordinate genuinely *is* the river mouth; "limit point" is only an
+    # earlier, unrelated waypoint in the same long boundary sentence.
+    text = (
+        "§ 5.12.1  A description of the coast\n"
+        "Albania is bounded on the north by Sarmatia; on the south by Armenia from the limit point "
+        "at Iberia to the Hyrkanian sea at the mouth of the Kyros river at 79°40' . 44°30'\n"
+    )
+    points = _tagged_point_list(text)
+    assert points[0].tags == {"river_mouth", "coast"}
+
+
+def test_part_of_this_line_is_a_reference_marker():
+    # "...to the part of this line at COORD" (confirmed §5.17.2) -- a
+    # restated boundary-line-position idiom, sibling to "limit point of
+    # this line at..." (already covered separately by "limit points?").
+    text = (
+        "§ 5.17.2  A description of the coast\n"
+        "to the east its boundary is the line leading to the eastern limit of Syria, "
+        "to the part of this line at 70°00' . 30°30'\n"
+    )
+    points = _tagged_point_list(text)
+    assert points[0].tags == {"city"}
+
+
+def test_connects_at_is_a_river_joining_synonym():
+    # "The one through Babylon connects at COORD" (confirmed §5.20.2) --
+    # another river tributary meeting its main river. Deliberately narrow
+    # ("connects at" specifically): bare "connect" has an unrelated
+    # administrative sense elsewhere in this text.
+    text = "§ 5.20.2  A description of the coast\nThe one through Babylon connects at 79°00' . 34°55'\n"
+    points = _tagged_point_list(text)
+    assert points[0].tags == {"river"}
+
+
+def test_bare_connect_to_a_region_is_not_a_river():
+    text = (
+        "§ 2.8.1  A description of the coast\n"
+        "The sides of Lugdunensis which connect to Aquitania have been described; "
+        "Brivates Harbour 17°40' . 48°45'\n"
+    )
+    points = _tagged_point_list(text)
+    assert "river" not in points[0].tags
+
+
+def test_limit_on_the_side_of_is_a_reference_marker():
+    # "The limit on the side of Kolchis is at COORD" (confirmed §5.9.7) --
+    # sibling to "limit point" but without the word "point".
+    text = "§ 5.9.7  A description of the coast\nThe limit on the side of Kolchis is at 75°00' . 47°30'\n"
+    points = _tagged_point_list(text)
+    assert points[0].tags == {"city"}

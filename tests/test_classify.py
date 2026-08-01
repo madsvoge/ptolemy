@@ -176,3 +176,39 @@ def test_bare_cities_are_colon_word_order_is_classified_inland():
     text = "§ 5.9.16  Latitudes of Sarmatia toward the unknown country\nThe cities are:\nHexapolis . 72°00' . 55°40'\n"
     sections, resolved = _resolve(text)
     assert resolved[sections[0].key] == INLAND
+
+
+def test_mountains_are_at_is_classified_mountain():
+    # "The extremes of the Hippika mountains are at COORD and COORD"
+    # (confirmed §5.9.15) -- narrow window so this doesn't fire on an
+    # unrelated "mountains...are at" many words later in a boundary
+    # sentence (§4.5.19 stays boundary/coastal, not mountain).
+    text = "§ 5.9.15  The extremes of the Hippika mountains are at 74°00' . 54°00'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == MOUNTAIN
+
+
+def test_mountains_are_at_far_from_boundary_stays_unmatched():
+    text = (
+        "§ 4.5.19  A description of the coast\n"
+        "and the Libyan mountains to the west of the Nile river, the end points of which "
+        "are at 61°00' . 29°00'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] != MOUNTAIN
+
+
+def test_mountains_thus_named_is_classified_mountain():
+    # "The mountains in this division are thus named:—" (confirmed
+    # §7.2.8) -- same list-intro convention as "...are called:", just with
+    # "named" and more words in between than the narrow "are at" window
+    # above allows.
+    text = "§ 7.2.8  The mountains in this division are thus named:—\nBepyrrhos . 148°00' . 34°00'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == MOUNTAIN
+
+
+def test_cities_thus_named_stays_unaffected():
+    text = "§ 6.16.6  The cities in Serike are thus named :—\nSera . 100°00' . 30°00'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] != MOUNTAIN
