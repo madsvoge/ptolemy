@@ -24,7 +24,6 @@ class Stitch:
     to_point_id: str
     from_line_id: str
     to_line_id: str
-    distance: float
 
 
 def _open_ends(lines: list[Line], kinds: tuple[str, ...] = ("coastline", "island")) -> list[tuple[str, str]]:
@@ -67,7 +66,7 @@ def suggest_stitches(lines: list[Line], points: list[Point], cap: float = STITCH
     for d, (line_i, point_i), (line_j, point_j) in candidates:
         if point_i in used_points or point_j in used_points:
             continue
-        stitches.append(Stitch(point_i, point_j, line_i, line_j, d))
+        stitches.append(Stitch(point_i, point_j, line_i, line_j))
         used_points.add(point_i)
         used_points.add(point_j)
     return stitches

@@ -58,7 +58,6 @@ class Section:
     title_line: str
     lead_text: str
     citations: list[Citation] = field(default_factory=list)
-    raw_text: str = ""
 
     @property
     def key(self) -> str:
@@ -146,7 +145,6 @@ def parse_sections(text: str) -> list[Section]:
     matches = list(_SECTION_MARKER.finditer(text))
     sections: list[Section] = []
     for i, m in enumerate(matches):
-        start = m.start()
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
         body = text[m.end():end]
         title_end = body.find("\n")
@@ -164,7 +162,6 @@ def parse_sections(text: str) -> list[Section]:
                 title_line=title_line,
                 lead_text=lead_text,
                 citations=citations,
-                raw_text=text[start:end].strip(),
             )
         )
     return sections
