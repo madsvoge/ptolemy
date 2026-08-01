@@ -8,6 +8,7 @@ exactly what turns a clean coastal walk into a false loop or junction.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 from .parser import Citation, Section
@@ -97,6 +98,40 @@ def _close(a: Point, lon: float, lat: float, tol: float) -> bool:
     return abs(a.lon_ferro - lon) <= tol and abs(a.lat_ferro - lat) <= tol
 
 
+# Sentence-initial capitals (a phrase almost always starts a sentence or
+# clause) that must not count as a "shared name" between two phrases --
+# without this filter, two totally unrelated citations that both merely
+# *start* with "The"/"And"/... would look like a name match.
+_PROPER_NOUN_STOPWORDS = {
+    "the", "a", "an", "and", "of", "in", "on", "at", "to", "from", "which",
+    "is", "below", "above", "after", "between", "near", "next", "this",
+    "toward", "towards", "then", "again", "first", "second", "third",
+}
+
+
+def _proper_nouns(phrase: str) -> set[str]:
+    return {
+        w.lower() for w in re.findall(r"[A-Z][a-zA-Z]*", phrase)
+        if w.lower() not in _PROPER_NOUN_STOPWORDS
+    }
+
+
+def _same_place(point: Point, phrase: str) -> bool:
+    # Two citations at the same coordinate are only the same real place if
+    # they also share a proper noun -- coordinates alone aren't enough.
+    # Confirmed on this text: "Lekton promontory" (Troas, mainland) and
+    # "Methymna" (a city on Lesbos, a separate island) cite the *exact*
+    # same coordinate (55d25' . 40d25') by coincidence, and coordinate-only
+    # matching silently welded Lesbos's own coastline onto the Anatolian
+    # mainland's. A phrase with no proper noun of its own (a bare "and", a
+    # generic "the source of the river") never matches anything this way --
+    # safer to leave it as its own point than to guess.
+    new_names = _proper_nouns(phrase)
+    if not new_names:
+        return False
+    return any(new_names & _proper_nouns(o.name_phrase) for o in point.occurrences)
+
+
 def dedup_points(sections: list[Section], tol: float = DEDUP_TOLERANCE_DEG) -> list[Point]:
     """Cluster every citation, across all sections, into canonical Points.
 
@@ -111,7 +146,12 @@ def dedup_points(sections: list[Section], tol: float = DEDUP_TOLERANCE_DEG) -> l
     for section in sections:
         for citation in section.citations:
             bucket = by_book_map.setdefault(section.book_map, [])
-            match = next((p for p in bucket if _close(p, citation.lon_ferro, citation.lat_ferro, tol)), None)
+            match = next(
+                (p for p in bucket
+                 if _close(p, citation.lon_ferro, citation.lat_ferro, tol)
+                 and _same_place(p, citation.name_phrase)),
+                None,
+            )
             occ = Occurrence(
                 section_key=section.key,
                 book_map=section.book_map,
