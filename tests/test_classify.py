@@ -1,5 +1,5 @@
 from ptolemy.parser import parse_sections
-from ptolemy.classify import classify_sections, COASTAL, INLAND, ISLAND, MOUNTAIN, BOUNDARY
+from ptolemy.classify import classify_sections, COASTAL, INLAND, ISLAND, MOUNTAIN, BOUNDARY, RIVER
 
 
 def _resolve(text):
@@ -46,6 +46,93 @@ def test_interior_cities_word_order_variant_is_classified_inland():
     assert resolved[sections[0].key] == INLAND
 
 
+def test_cities_in_the_hinterland_is_classified_inland():
+    # Confirmed §3.13.5, "Cities in the hinterland of Epiros: Chaonians" --
+    # neither the strong "interior" wording nor the weak "the following
+    # cities" wording matched this, so it silently inherited COASTAL from
+    # the preceding coastal-walk section and pulled a whole list of
+    # interior Epirote towns into that book.map's coastline trail.
+    text = "§ 3.13.5  Cities in the hinterland of Epiros: Chaonians\nAntigoneia . 45°15' . 39°10'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == INLAND
+
+
+def test_common_boundary_lead_is_classified_boundary_not_coastal():
+    # Confirmed §2.5.1, "LUSITANIA\nThe southern side of Lusitania is the
+    # common boundary with the northern side of Baetica..." -- a region's
+    # own opening boundary declaration, using the bare noun "boundary"
+    # rather than _BOUNDARY_RE's "bounded"/"bordered" verb forms, and
+    # restating its own river's mouth as the boundary line's starting
+    # landmark. Without this, the point-level "mouth" cue outranked the
+    # section's own boundary-declaration lead and it resolved COASTAL --
+    # and since that same river mouth is cited again, correctly, as the
+    # region's real coastal walk's last point later in the book.map, one
+    # dedup'd Point ended up with a spurious early appearance in the drawn
+    # coastline.
+    text = (
+        "§ 2.5.1  LUSITANIA\n"
+        "The southern side of Lusitania is the common boundary with the "
+        "northern side of Baetica. The mouth of the river, which flows "
+        "into the Outer Sea, is at 5°20' . 41°50'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == BOUNDARY
+
+
+def test_cities_qualifier_are_colon_is_classified_inland():
+    # Confirmed §5.7.2, "Cities on the Euphrates are:\nSinibra ." -- the
+    # weak-tier "cities are:" pattern required direct adjacency between
+    # the noun and "are:", so a qualifier phrase in between ("on the
+    # Euphrates") meant this had no signal of its own and fell through to
+    # a stale inherited COASTAL type.
+    text = "§ 5.7.2  Cities on the Euphrates are:\nSinibra . 60°00' . 37°00'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == INLAND
+
+
+def test_single_citation_boundary_declaration_is_classified_boundary():
+    # Confirmed §5.20.1, Babylonia: "...along the remaining parts of the
+    # Tigris river as far as its outflows into the Persian Gulf at COORD"
+    # is the section's *only* citation, matching both _BOUNDARY_RE
+    # ("bounded... by...") and the coastal point-cue check ("gulf") --
+    # and coastal_hits, checked first, always won before this.
+    text = (
+        "§ 5.20.1  Babylonia is bounded on the north by Mesopotamia along "
+        "the Euphrates river, on the east by Susiana along the Tigris "
+        "river as far as its outflows into the Persian Gulf at 79°00' . 32°30'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == BOUNDARY
+
+
+def test_single_citation_boundary_rule_does_not_swallow_a_real_coastal_walk():
+    # The single-citation-boundary override above must stay scoped to a
+    # section with *only* that one citation -- a boundary-declaration
+    # lead followed by several real coastal points (confirmed §2.7.1,
+    # §3.5.1 corpus-wide) must still resolve COASTAL.
+    text = (
+        "§ 2.7.1  Aquitania is bounded on the north by the Ocean.\n"
+        "Promontory A 10°00' . 50°00'\n"
+        "Promontory B 11°00' . 50°10'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == COASTAL
+
+
+def test_bare_hinterland_mention_in_boundary_prose_does_not_misclassify():
+    # "hinterland" naming the interior in passing, within a sentence whose
+    # own list-intro cue is "the shore is as follows" (confirmed §3.10.7),
+    # must stay coastal -- only the "cities/towns/villages ... hinterland"
+    # list-header idiom is a reliable inland signal on its own.
+    text = (
+        "§ 3.10.7  The Harpioi occupy the shore and the hinterland as far as "
+        "the river. The shore is as follows:\n"
+        "mouth of the Borysthenes . 57°30' . 48°30'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == COASTAL
+
+
 def test_bounded_by_without_direction_word_is_classified_boundary():
     text = "§ 2.14.1  UPPER PANNONIA\nOn the west, Upper Pannonia is bounded by Cetium mountain 15°00' . 46°00'\n"
     sections, resolved = _resolve(text)
@@ -73,6 +160,73 @@ def test_no_signal_never_inherits_into_island_or_mountain():
     assert resolved["2.2.3"] == COASTAL  # inherits from 2.2.1, skipping the mountain aside
 
 
+def test_named_island_walk_described_as_follows_is_classified_island():
+    # A single named island's own coastal walk, embedded as an appendix
+    # inside a shared/mainland book.map (confirmed §5.2.29, Lesbos) --
+    # signalled by "island" co-occurring with Ptolemy's own "described as
+    # follows" list-intro in the same lead sentence.
+    text = (
+        "§ 5.2.29  In the Aegean sea Lesbos, an Aiolian island, described as follows:\n"
+        "Sigrion promontory . 55°00' . 40°00'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == ISLAND
+
+
+def test_generic_described_as_follows_without_island_word_stays_coastal():
+    # The bare "described as follows"/"description...as follows" list-intro
+    # convention is not island-specific on its own -- plain coastal/
+    # boundary sections use it constantly -- so it must only fire paired
+    # with "island(s)" already present in the same lead.
+    text = "§ 6.3.2  this coast is described as follows:\nSome point . 79°30' . 30°15'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == COASTAL
+
+
+def test_bare_description_of_name_title_is_classified_island():
+    # "Description of Karpathos:" as a section's own bare lead (confirmed
+    # §5.2.33) -- distinct from the generic "Description of the west/south/
+    # ... side:" and "the description of {this side|which} is..." coastal
+    # conventions used everywhere else in this text.
+    text = "§ 5.2.33  Description of Karpathos:\nThoantion promontory . 57°00' . 35°20'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == ISLAND
+
+
+def test_description_of_the_side_stays_coastal():
+    text = "§ 3.2.3  Description of the west coast:\nSome point . 57°00' . 35°20'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == COASTAL
+
+
+def test_islands_on_its_coast_is_classified_island():
+    # "on" as the connecting preposition (confirmed §5.14.7, Cleides) --
+    # not part of the original preposition set, which missed this phrasing.
+    text = "§ 5.14.7  The islands on its coast are those called Cleides, their midpoint . 67°20' . 35°45'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == ISLAND
+
+
+def test_islands_adjacent_to_is_classified_island():
+    # Confirmed §3.14.22 (Euboia) and §3.15.11/§6.21.6 (both previously
+    # misclassified inland, since "adjacent" wasn't among the recognized
+    # island-list prepositions).
+    text = "§ 3.15.11  Islands adjacent to Crete\nSome island 57°00' . 35°20'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == ISLAND
+
+
+def test_cities_are_these_word_order_variant_is_classified_inland():
+    # "And the cities are these:" (confirmed §7.1.43) -- the same list-intro
+    # convention as "the following cities:", just with subject and
+    # predicate swapped. Without recognizing this order, the section had no
+    # signal of its own and silently inherited a stale coastal type carried
+    # in from far earlier in the book.map.
+    text = "§ 7.1.43  And the cities are these:—\nKaisana . 120°00' . 34°20'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == INLAND
+
+
 def test_no_signal_scoped_to_same_book_map():
     text = (
         "§ 2.2.1  The named mountains here are Foo\nMt. Foo 10°00' . 60°00'\n\n\n"
@@ -85,3 +239,141 @@ def test_no_signal_scoped_to_same_book_map():
     # across a map boundary.
     assert resolved["2.2.1"] == MOUNTAIN
     assert resolved["2.3.1"] == COASTAL
+
+
+def test_section_with_no_textual_signal_stays_unoverridden():
+    # §7.1.95 has no manual-override mechanism at this layer any more --
+    # classify_sections is a pure function of the text, so its own "line of
+    # coast" wording resolves it coastal on text alone. The curator
+    # correction that makes this section island (its citations are
+    # historically an island group Ptolemy's own prose doesn't name as
+    # such) now lives in data/manual_section_overrides.csv, applied by
+    # ptolemy.overrides as an explicit, separate step -- see
+    # tests/test_overrides.py.
+    text = "§ 7.1.95  And along the line of coast as far as the Kolchic Gulf:—\nHeptanesia . 113°00' . 13°00'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == COASTAL
+
+
+def test_bare_cities_are_colon_word_order_is_classified_inland():
+    # "The cities are:" / "whose towns are:" -- the same swapped-order
+    # list-intro convention as "the cities are these:", just without the
+    # "these"/"the following" qualifier at all (confirmed §5.9.16, ending
+    # a long tribal-ethnography aside about Sarmatia's unknown country).
+    text = "§ 5.9.16  Latitudes of Sarmatia toward the unknown country\nThe cities are:\nHexapolis . 72°00' . 55°40'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == INLAND
+
+
+def test_mountains_are_at_is_classified_mountain():
+    # "The extremes of the Hippika mountains are at COORD and COORD"
+    # (confirmed §5.9.15) -- narrow window so this doesn't fire on an
+    # unrelated "mountains...are at" many words later in a boundary
+    # sentence (§4.5.19 stays boundary/coastal, not mountain).
+    text = "§ 5.9.15  The extremes of the Hippika mountains are at 74°00' . 54°00'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == MOUNTAIN
+
+
+def test_mountains_are_at_far_from_boundary_stays_unmatched():
+    text = (
+        "§ 4.5.19  A description of the coast\n"
+        "and the Libyan mountains to the west of the Nile river, the end points of which "
+        "are at 61°00' . 29°00'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] != MOUNTAIN
+
+
+def test_mountains_thus_named_is_classified_mountain():
+    # "The mountains in this division are thus named:—" (confirmed
+    # §7.2.8) -- same list-intro convention as "...are called:", just with
+    # "named" and more words in between than the narrow "are at" window
+    # above allows.
+    text = "§ 7.2.8  The mountains in this division are thus named:—\nBepyrrhos . 148°00' . 34°00'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == MOUNTAIN
+
+
+def test_cities_thus_named_stays_unaffected():
+    text = "§ 6.16.6  The cities in Serike are thus named :—\nSera . 100°00' . 30°00'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] != MOUNTAIN
+
+
+def test_cities_and_villages_of_inland_region_is_classified_inland():
+    # "These are the cities and villages of inland Karmania:" (confirmed
+    # §6.8.13) -- "inland" modifies the region's own name rather than
+    # sitting directly before "cities/towns/villages", so the existing
+    # "inland cities/towns/villages" pattern doesn't reach it. Without this,
+    # a whole list of Karmania's own interior cities (Portospana, Karmana
+    # metropolis, ...) was wrongly strung into the coastal walk as if they
+    # were fresh capes and river mouths.
+    text = (
+        "§ 6.8.13  These are the cities and villages of inland Karmania:\n"
+        "Portospana . 96°00' . 25°00'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == INLAND
+
+
+def test_of_inland_region_bare_title_is_classified_inland():
+    text = "§ 3.14.38  Of inland Corinthia\nCorinthos . 53°00' . 37°00'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == INLAND
+
+
+def test_sources_of_the_river_lead_is_classified_river():
+    text = (
+        "§ 7.1.34  Sources of the River Solen in the Bettigo range 130°00' . 15°20'\n"
+        "The point where it turns 131°00' . 16°00'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == RIVER
+
+
+def test_mouth_to_head_river_course_is_classified_river():
+    # Confirmed §3.1.24, the Padus/Po: unlike every other river-course
+    # section, this one is told the other direction -- starting at the
+    # river's mouth and following it upstream to its head, through two
+    # lake-fed forks, with no "sources" wording anywhere.
+    text = (
+        "§ 3.1.24  mouth of the Padus river . 34°45' . 44°00'\n"
+        "the head of the river at Lario lake 30°00' . 46°00'\n"
+        "where it joins with the Dorias river 29°00' . 46°30'\n"
+        "head of the Dorias river at Poenina lake 28°00' . 47°00'\n"
+        "where it is diverted toward Baenacus lake 27°00' . 47°15'\n"
+        "position of this lake 26°30' . 47°30'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == RIVER
+
+
+def test_bare_mouth_of_river_lead_without_a_sustained_course_stays_coastal():
+    # A "mouth of NAME river" lead is common and, on its own, just as
+    # often the opening waypoint of an ordinary coastal walk that moves on
+    # to unrelated points right after -- confirmed §4.7.12 (a city and a
+    # promontory, nothing more about the Rhaptus itself).
+    text = (
+        "§ 4.7.12  mouth of the Rhaptus river . 60°00' . 5°00'\n"
+        "Rhapta, metropolis of Barbaria, a short distance from the sea 61°00' . 4°30'\n"
+        "Rhapton promontory 62°00' . 4°00'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == COASTAL
+
+
+def test_mouth_of_river_lead_that_drifts_into_plain_cities_stays_coastal():
+    # Confirmed §5.15.3: a river-source digression ("river sources") sits
+    # right after the opening mouth citation, but the section then drifts
+    # into a run of ordinary Syrian coastal cities unrelated to that
+    # river -- it must not be swallowed into RIVER just because it opens
+    # the same way §3.1.24 does.
+    text = (
+        "§ 5.15.3  mouth of the Orontes river . 68°00' . 35°00'\n"
+        "river sources 67°00' . 35°30'\n"
+        "Poseidion 68°30' . 35°10'\n"
+        "Herakleia 69°00' . 35°20'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == COASTAL

@@ -8,9 +8,10 @@ exactly what turns a clean coastal walk into a false loop or junction.
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
-from .parser import Citation, Section
+from .parser import Section
 
 DEDUP_TOLERANCE_DEG = 0.05
 
@@ -32,6 +33,35 @@ _TRAILING_STOPWORDS = {
     "the", "near", "and",
 }
 
+# Ptolemy routinely folds a tribe's or nome's capital into a much longer
+# sentence naming the tribe/region itself first ("Further east than the
+# Remi are, more northerly, the Treveri and their city Augusta Treverum",
+# "The Atribati occupy the sea coast...their city being Nemetacum") --
+# recognized here by the same marker tag.py's own point-tagging uses to
+# spot this idiom (see tag.py's _TRIBAL_CITY_RE/_TRIBAL_CITY_BARE_RE,
+# which import these two regexes from here rather than duplicating them).
+# Defined in points.py, not tag.py, because trim_name needs them too:
+# neither the leading- nor trailing-stopword trim below reaches into the
+# *middle* of a sentence, so without this a point like that ended up
+# named after its entire tribal description instead of just "Augusta
+# Treverum" (confirmed §2.9.7).
+TRIBAL_CITY_RE = re.compile(
+    r"\b(?:city|town)\s+is\b|\b(?:cities|towns)\s+is\b"
+    r"|\bwhose\s+(?:city|town)\b|\btheir\s+(?:city|town)\b"
+    r"|\b(?:city|town)\s+being\b",
+    re.I,
+)
+TRIBAL_CITY_BARE_RE = re.compile(r"\bthe\s+towns?\s+(?-i:[A-Z])", re.I)
+# The place's own real name is always the trailing run of capitalized
+# words -- whatever tribal/nome description precedes it in the sentence
+# is never itself capitalized-word-for-word all the way to the very end
+# (confirmed against every "their city"/"whose city"/"the town" citation
+# in this text, including asides sitting between the marker and the name
+# itself, e.g. "whose city on the eastern bank of the Sequana River is
+# Ratomagus" -- "Sequana River" is capitalized too, but isn't at the tail,
+# so this still isolates just "Ratomagus").
+_TRAILING_PROPER_NOUN_RE = re.compile(r"[A-Z][\w-]*(?:\s+[A-Z][\w-]*)*$")
+
 
 def trim_name(phrase: str) -> str:
     phrase = phrase.strip()
@@ -41,6 +71,10 @@ def trim_name(phrase: str) -> str:
     # the last colon is the name, whatever the intro reads like.
     if ":" in phrase:
         phrase = phrase.rsplit(":", 1)[1]
+    if TRIBAL_CITY_RE.search(phrase) or TRIBAL_CITY_BARE_RE.search(phrase):
+        m = _TRAILING_PROPER_NOUN_RE.search(phrase.strip(" ,:;."))
+        if m:
+            return m.group(0)
     words = phrase.strip().strip(":,;.").split()
     while words and words[0].strip(",:;").lower() in _LEADING_STOPWORDS:
         words.pop(0)
@@ -69,14 +103,26 @@ class Point:
     tags: set[str] = field(default_factory=set)
     lon_modern: float | None = None
     lat_modern: float | None = None
+    # A point manually added via data/manual_added_points.csv (see
+    # ptolemy/overrides.py) has no citation of its own -- it exists only to
+    # close a shape for display, not because Ptolemy's text says anything
+    # at that coordinate. is_synthetic keeps that fact visible all the way
+    # through to the GeoPackage, and manual_name stands in for the `name`
+    # property below, which otherwise has nothing to derive a name from.
+    is_synthetic: bool = False
+    manual_name: str | None = None
 
     @property
     def name(self) -> str:
+        if not self.occurrences:
+            return self.manual_name or self.id
         candidates = [trim_name(o.name_phrase) for o in self.occurrences]
         return min(candidates, key=len)
 
     @property
     def name_variants(self) -> list[str]:
+        if not self.occurrences:
+            return [self.manual_name] if self.manual_name else []
         seen, out = set(), []
         for o in self.occurrences:
             if o.name_phrase not in seen:
@@ -86,7 +132,7 @@ class Point:
 
     @property
     def first_char_offset(self) -> int:
-        return self.occurrences[0].char_offset
+        return self.occurrences[0].char_offset if self.occurrences else -1
 
     @property
     def south(self) -> bool:
@@ -95,6 +141,53 @@ class Point:
 
 def _close(a: Point, lon: float, lat: float, tol: float) -> bool:
     return abs(a.lon_ferro - lon) <= tol and abs(a.lat_ferro - lat) <= tol
+
+
+# Sentence-initial capitals (a phrase almost always starts a sentence or
+# clause) that must not count as a "shared name" between two phrases --
+# without this filter, two totally unrelated citations that both merely
+# *start* with "The"/"And"/... would look like a name match.
+_PROPER_NOUN_STOPWORDS = {
+    "the", "a", "an", "and", "of", "in", "on", "at", "to", "from", "which",
+    "is", "below", "above", "after", "between", "near", "next", "this",
+    "toward", "towards", "then", "again", "first", "second", "third",
+    # Recurring river-catalogue vocabulary, not a place's own name -- two
+    # entirely unrelated rivers' source citations ("Sources of the River
+    # Namados in the Ouindion range" / "Sources of the River Baris in the
+    # Bettigo range") both start with these same capitalized words, which
+    # otherwise satisfied this function's "shares a proper noun" check on
+    # their own and wrongly deduped two different rivers' sources into one
+    # point whenever Ptolemy's own coordinates happened to sit close
+    # together (confirmed §7.1.31/§7.1.34, ~0.2 degrees apart) -- the same
+    # class of bug the Lekton/Methymna case above already guards against,
+    # just from a shared *word* instead of a shared coordinate alone.
+    "sources", "source", "springs", "spring", "river", "rivers", "mouth",
+    "mouths", "confluence", "junction", "bend", "bends", "turn", "turns",
+    "fork", "forks",
+}
+
+
+def _proper_nouns(phrase: str) -> set[str]:
+    return {
+        w.lower() for w in re.findall(r"[A-Z][a-zA-Z]*", phrase)
+        if w.lower() not in _PROPER_NOUN_STOPWORDS
+    }
+
+
+def _same_place(point: Point, phrase: str) -> bool:
+    # Two citations at the same coordinate are only the same real place if
+    # they also share a proper noun -- coordinates alone aren't enough.
+    # Confirmed on this text: "Lekton promontory" (Troas, mainland) and
+    # "Methymna" (a city on Lesbos, a separate island) cite the *exact*
+    # same coordinate (55d25' . 40d25') by coincidence, and coordinate-only
+    # matching silently welded Lesbos's own coastline onto the Anatolian
+    # mainland's. A phrase with no proper noun of its own (a bare "and", a
+    # generic "the source of the river") never matches anything this way --
+    # safer to leave it as its own point than to guess.
+    new_names = _proper_nouns(phrase)
+    if not new_names:
+        return False
+    return any(new_names & _proper_nouns(o.name_phrase) for o in point.occurrences)
 
 
 def dedup_points(sections: list[Section], tol: float = DEDUP_TOLERANCE_DEG) -> list[Point]:
@@ -107,11 +200,22 @@ def dedup_points(sections: list[Section], tol: float = DEDUP_TOLERANCE_DEG) -> l
     close (the same guard the line-building step needs later).
     """
     by_book_map: dict[str, list[Point]] = {}
-    next_id = 0
+    # A point's id is Book.Map.Section.NumberInSection, anchored to its
+    # *first* citation's own section (later occurrences elsewhere just
+    # merge into it -- see the dedup match lookup below, which isn't
+    # section-scoped). NumberInSection is that section's own count of
+    # newly-created points, in citation order, so this counter is keyed
+    # per section, not per book_map.
+    section_point_count: dict[str, int] = {}
     for section in sections:
         for citation in section.citations:
             bucket = by_book_map.setdefault(section.book_map, [])
-            match = next((p for p in bucket if _close(p, citation.lon_ferro, citation.lat_ferro, tol)), None)
+            match = next(
+                (p for p in bucket
+                 if _close(p, citation.lon_ferro, citation.lat_ferro, tol)
+                 and _same_place(p, citation.name_phrase)),
+                None,
+            )
             occ = Occurrence(
                 section_key=section.key,
                 book_map=section.book_map,
@@ -120,9 +224,10 @@ def dedup_points(sections: list[Section], tol: float = DEDUP_TOLERANCE_DEG) -> l
                 south=citation.south,
             )
             if match is None:
-                next_id += 1
+                section_point_count[section.key] = section_point_count.get(section.key, 0) + 1
+                ordinal = section_point_count[section.key]
                 match = Point(
-                    id=f"P{next_id}",
+                    id=f"{section.book}.{section.map}.{section.section:02d}.{ordinal:02d}",
                     lon_ferro=citation.lon_ferro,
                     lat_ferro=citation.lat_ferro,
                     book_map=section.book_map,

@@ -11,6 +11,7 @@ from .parser import Section
 
 ISLAND = "island"
 MOUNTAIN = "mountain"
+RIVER = "river"
 INLAND = "inland"
 COASTAL = "coastal"
 BOUNDARY = "boundary"
@@ -25,17 +26,72 @@ BOUNDARY = "boundary"
 # list-introducing clause* alongside a locative preposition ("lying off",
 # "near", "around", ...), confirmed empirically against ~80 lead_texts
 # containing "island" in books 2-7 (see repo notes / commit history).
-_ISLAND_RE = re.compile(
-    r"\bislands?\b\s*(?:lying\s+|located\s+|lies?\s+)?(?:off|near|around|alongside|above|beyond)\b"
-    r"|\b(?:off|above|near|around|alongside|beyond)\b[^.\n]{0,60}\bislands?\b"
+_ISLAND_LIST_RE = re.compile(
+    r"\bislands?\b\s*(?:lying\s+|located\s+|lies?\s+)?(?:off|near|around|alongside|above|beyond|in|along|adjoining|on|adjacent(?:\s+to)?)\b"
+    r"|\b(?:off|above|near|around|alongside|beyond|along|adjoining|adjacent(?:\s+to)?)\b[^.\n]{0,60}\bislands?\b"
     r"|\bthese\s+are\s+the\s+islands?\b"
     r"|\bthere\s+are\b[^.\n]{0,25}\bislands?\b"
     # "the cities of the [so-called] Cycladic islands" -- an island-group
     # appendix headed by its settlements rather than the bare word
     # "islands" acting as its own subject.
-    r"|\bcities?\s+of\s+the\b[^.\n]{0,30}\bislands?\b",
+    r"|\bcities?\s+of\s+the\b[^.\n]{0,30}\bislands?\b"
+    # Same colon-terminated list-intro convention already exploited for
+    # inland/mountain lists ("High seas islands of Africa are the
+    # following:") -- catches phrasings where "islands" isn't paired with
+    # one of the specific prepositions above. Plural "islands" only: a
+    # *list* of several islands is always plural, whereas singular "this
+    # island"/"the island" is how Ptolemy refers to the single landmass a
+    # coastal-walk or mountain-list section is itself describing (e.g.
+    # "the seacoast of this island...:", "the mountains in the island
+    # are:") -- those must not flip category just because a colon shows up
+    # somewhere later in an unrelated clause.
+    r"|\bislands\b[^.\n]{0,80}:",
     re.I,
 )
+
+# A single named island's own coastal walk, embedded as an appendix inside
+# a shared/mainland book.map (Lesbos in 5.2, Euboia in 3.14, Karpathos in
+# 5.2) -- kept as its own pattern, separate from the island *list* intros
+# above, because lines.py needs to tell the two apart: a list of several
+# distinct islands (Ebuda, the Cyclades, "islands in the Ikarian sea"...)
+# must NOT have its points blanket-connected by catalogue-order adjacency
+# the way one island's own walk should be (confirmed: doing so for every
+# ISLAND-classified section drew nonsense self-intersecting lines across
+# unrelated islands cited back to back in the same list).
+# "Description of <Name>[ island]:" as a section's own bare lead, e.g.
+# "Description of Karpathos:" / "Description of Rhodes island:" --
+# distinct from the generic "Description of the west/south/... side:" and
+# "the description of {this side|this boundary|which} is..." coastal
+# conventions (confirmed: every other "description of" in this text is
+# followed by "the"/"this"/"which", never a bare proper noun). Also used,
+# via starts_new_named_island below, to catch a *second* such heading
+# appearing mid-section rather than in the lead -- Ptolemy sometimes packs
+# more than one named island's own walk into a single §-numbered section
+# (confirmed §5.2.33: "Description of Karpathos:" immediately followed,
+# after Karpathos's own points, by "Description of Rhodes island:" and
+# Rhodes's).
+_ISLAND_SUBHEADING_RE = re.compile(
+    r"\bdescription\s+of\s+(?!the\b|this\b|which\b)[A-Za-z][\w\s]{0,30}?:",
+    re.I,
+)
+
+_NAMED_ISLAND_WALK_RE = re.compile(
+    # "island" co-occurring with Ptolemy's own "described/description as
+    # follows" list-intro convention in the same lead sentence. That
+    # convention alone is not island-specific (plain coastal/boundary
+    # sections use it constantly, e.g. "the description of the coast is
+    # the following"), so it's only trusted paired with the word
+    # "island(s)" already present in the very same lead -- and NOT the
+    # similar-looking "with the following description" word order also
+    # used to open a single island within a larger list (§3.13.9, Korkyra),
+    # which must stay excluded since it's still list-scoped, not its own
+    # section.
+    r"(?=[^\n]*\bislands?\b)[^\n]*\b(?:described|description)\s+as\s+follows\b"
+    r"|" + _ISLAND_SUBHEADING_RE.pattern,
+    re.I,
+)
+
+_ISLAND_RE = re.compile(_ISLAND_LIST_RE.pattern + "|" + _NAMED_ISLAND_WALK_RE.pattern, re.I)
 
 # Same reasoning as islands: a bare "mountain" mention (a boundary marker
 # named after a mountain range, e.g. "bounded ... by Adulas mountain") is
@@ -44,32 +100,176 @@ _ISLAND_RE = re.compile(
 # like named/celebrated/notable, or ends the clause with a colon before
 # the enumeration starts.
 _MOUNTAIN_RE = re.compile(
-    r"\b(?:named|celebrated|notable)\s+mountains?\b"
+    r"\b(?:named|celebrated|notable|noteworthy)\s+mountains?\b"
     r"|\bmountains?\b.{0,15}\b(?:are|called):"
     r"|\bmountains?\s+in\s+this\s+(?:section|region)\b"
     # A bare title like "Mountains in the Peloponnese" -- same
     # list-heading convention as "Mountains in this section:", just
     # naming the region instead of saying "this section".
-    r"|^mountains?\s+(?:in|of)\b",
+    r"|^mountains?\s+(?:in|of)\b"
+    # "The extremes of the Hippika mountains are at COORD and COORD" --
+    # confirmed §5.9.15, a whole list of ranges each cited by name plus
+    # its own two extremity coordinates. Narrow window (15 chars) so this
+    # doesn't fire on an unrelated "mountains...are at" many words later
+    # in a long boundary sentence (confirmed distinct from §4.5.19's "the
+    # Libyan mountains..., the end points of which are at", which stays
+    # boundary/coastal as intended).
+    r"|\bmountains?\b.{0,15}\bare\s+at\b"
+    # "The mountains in this division are thus named:—" (confirmed
+    # §7.2.8) -- the same list-intro convention as "...are called:", just
+    # with "named" and enough words in between that the 15-char window
+    # above doesn't reach it. "thus named" is rare and specific enough in
+    # this text (2 uses total, the other about cities not mountains) that
+    # requiring only "mountains" anywhere earlier in the same line is safe.
+    r"|\bmountains?\b[^.\n]*\bthus\s+named\b",
     re.I,
 )
 
-_INLAND_RE = re.compile(
-    r"\binland\s+(?:cities|towns)\b"
-    r"|\binterior\s+(?:cities|towns)\b"
-    r"|\bcities?\s+of\s+the\s+interior\b"
-    r"|\bin\s+the\s+interior\b"
+# A section whose own lead is fundamentally *about* a river's course --
+# its own sources, a bend, a confluence, a branch -- rather than a region
+# whose boundary/coast/city-list happens to mention a river in passing.
+# Two shapes, both confirmed throughout books 5-7's own river catalogues:
+#   - Catalogue style: the section opens by naming the source(s) directly
+#     ("Sources of the River Zaradros", confirmed §7.1.27 and ten more
+#     single-citation siblings in book 7.1 alone; "Source of Styx water",
+#     confirmed §6.7.40).
+#   - Narrative style: the river itself is the sentence's own grammatical
+#     subject, performing a river-course verb (flows/discharges/descends/
+#     enters/branches off/joins/unites/reunites) -- "Another river flows
+#     into the Margos..." (§6.10.4), "Rivers flow through Baktriane..."
+#     (§6.11.2), "From Maiandros descend the rivers..." (§7.2.10), "The
+#     rivers which form the island reunite at..." (§4.5.58).
+# Deliberately anchored to the *start* of the lead (^) for both shapes --
+# a region's own boundary declaration routinely mentions a river's source
+# too ("bounded... by the western part of the river Danube", §2.11.3;
+# "POSITION OF THE SOGDIANOI... bounded... by that part of Scythia which
+# is limited by the sources of the Iaxartes", §6.12.1), but there the
+# river is buried mid-sentence, never the sentence's own opening subject
+# -- confirmed zero false positives against every "source(s)"/"spring(s)"
+# lead in this corpus checked by hand.
+_RIVER_LEAD_RE = re.compile(
+    r"^(?:the\s+|and\s+by\s+the\s+)?(?:sources?|springs?)\s+of\b"
+    r"|^(?:the\s+)?rivers?\b[^.\n]{0,20}\b(?:flows?|flowing|which\s+flow)\b"
+    r"|^(?:another|a(?:\s+notable)?)\s+river\s+(?:flows?|enters?)\b"
+    r"|^there\s+flows?\b[^.\n]{0,80}\brivers?\b"
+    r"|^from\s+[a-z][\w-]*(?:,?\s+[\w-]+)?\s+(?:\w+\s+)?rivers?\s+(?:discharges?|discharge)\b"
+    r"|^from\s+[a-z][\w-]*\s+descends?\s+(?:the\s+)?rivers?\b"
+    r"|^from\s+(?:these|those)\s+mountains?\s+rivers?\s+flow\b"
+    r"|^of\s+the\s+(?:streams?|rivers?)\s+which\s+(?:join|unite)\b"
+    r"|^and\s+of\s+the\s+other\s+rivers?\b"
+    r"|^the\s+(?:following\s+)?rivers?\s+(?:that|which|enter)\b"
+    r"|^rivers?\s+(?:flow|flowing)\b",
+    re.I,
+)
+
+# The mirror image of the "sources of X" lead: a handful of sections walk a
+# single river's own course the *other* direction, starting at its mouth
+# and following it upstream to its head/sources (confirmed §3.1.24, the
+# Padus/Po: "mouth of the Padus river" -> "the head of the river at Lario
+# lake" -> "where it joins with the Dorias river" -> "head of the Dorias
+# river at Poenina lake" -> ... -- no "sources" anywhere, only "head of").
+# A bare "mouth of NAME river" lead is common and NOT on its own a reliable
+# river-course signal -- it's exactly as often just the opening waypoint of
+# an ordinary coastal walk that moves on to unrelated promontories/cities/
+# other river mouths right after (confirmed §4.7.12, §5.1.7, §5.9.5,
+# §5.9.10, §5.15.3 -- all share the identical "mouth of NAME river" lead
+# but drift into plain coastal citations within a step or two). So this
+# additionally requires *every* citation after the first to still be about
+# that river's own course (turn/bend/head/confluence/source/lake...,
+# checked point-by-point below, not lead-only the way every other
+# RIVER/ISLAND/MOUNTAIN signal is) -- the one structural exception to this
+# module's own "non-carryable types read lead_text only" rule, needed
+# because Ptolemy never puts a second lead sentence in front of this
+# idiom to announce it the way "Sources of the River X" does.
+_RIVER_MOUTH_LEAD_RE = re.compile(r"^mouth\s+of\s+(?:the\s+)?[\w-]+\s+river\b", re.I)
+_RIVER_COURSE_STEP_RE = re.compile(
+    r"\briver\b|\bsources?\b|\bsprings?\b|\bturns?\b|\bbends?\b|\bconfluence\b"
+    r"|\bjoins?\b|\bforks?\b|\bbifurcat\w*\b|\bunites?\b|\bdivert\w*\b"
+    r"|\bhead\s+of\b|\blakes?\b",
+    re.I,
+)
+
+
+def _is_reverse_river_course(section: Section) -> bool:
+    if not _RIVER_MOUTH_LEAD_RE.search(section.lead_text.strip()):
+        return False
+    rest = section.citations[1:]
+    return bool(rest) and all(_RIVER_COURSE_STEP_RE.search(c.name_phrase) for c in rest)
+
+# Split into two tiers. The strong tier is unambiguous -- Ptolemy is never
+# describing a coastal walk when he uses the word "inland"/"interior", or
+# "komai" (Greek villages), or "the interior villages of X". The weak tier
+# ("the following cities are:", "Its towns are:") is Ptolemy's own generic
+# list-introducing convention, and he reuses that exact phrasing for
+# coastal river-mouth lists too (confirmed: Hyrkania's own Caspian-coast
+# section opens "In this section are the following cities:" and then
+# cites nothing but river mouths) -- so the weak tier is only trusted when
+# the section's own points don't already show a stronger coastal signal.
+_INLAND_STRONG_RE = re.compile(
+    # "inlands cities" (the -s misplaced onto "inland" instead of the noun)
+    # is a real transcription slip in this text (confirmed §2.10.6) --
+    # tolerate it the same way "villages"/"komai" tolerate Ptolemy's own
+    # wording variance.
+    r"\binlands?\s+(?:cities|towns|villages)\b"
+    r"|\binterior\s+(?:cities|towns|villages)\b"
+    r"|\b(?:cities|towns|villages)\s+of\s+the\s+interior\b"
+    # "in the interior" and "in the Cretan interior" (a regional adjective
+    # inserted between "the" and "interior") -- confirmed §3.15.10,
+    # "Cities in the Cretan interior:".
+    r"|\bin\s+the\s+(?:[\w-]+\s+)?interior\b"
     r"|\binterior\s+of\b"
-    # Ptolemy names a tribe's own settlements with a colon-terminated
-    # "(the following|these) (towns|cities):" intro just as often as he
-    # uses the literal word "inland" -- this is the same list-introducing
-    # convention as the named-mountain-list cue above, just for
-    # settlements, and it recurs constantly interleaved *within* an
-    # otherwise coastal walk (confirmed empirically: ~30 of these carry no
-    # other signal and would otherwise wrongly inherit whatever type came
-    # before them).
-    r"|\b(?:the\s+)?(?:following|these)\s+(?:towns|cities)\b"
-    r"|\b(?:towns|cities):",
+    # "These are the cities and villages of inland Karmania:" (confirmed
+    # §6.8.13) / "Of inland Corinthia" (§3.14.38) -- the adjective
+    # "inland" modifying the *region's own name* rather than sitting
+    # directly before "cities/towns/villages" the way the first
+    # alternative above requires.
+    r"|\b(?:cities|towns|villages)\s+of\s+inland\b|^of\s+inland\b"
+    # "komai" (Greek villages) is specific/technical enough a term that it
+    # doesn't need a "following/these" wrapper to be a reliable signal on
+    # its own -- e.g. "on the west bank of the river are the komai".
+    r"|\bkomai\b"
+    # "Cities in the hinterland of Epiros:" (confirmed §3.13.5) -- the
+    # same "cities/towns/villages of the interior" idiom, just with
+    # "hinterland" instead of "interior". Without this, the section had no
+    # signal of its own (neither tier matched "hinterland", and it doesn't
+    # open with "the following"/"these" the way the weak tier requires) and
+    # silently inherited COASTAL from the preceding coastal-walk section,
+    # pulling a whole list of interior Epirote towns into that book.map's
+    # coastline trail as if they were shore citations (confirmed: this
+    # alone produced 11 of coastline-3.13-1's self-crossings).
+    r"|\b(?:cities|towns|villages)\s+(?:in|of)\s+the\s+hinterland\b"
+    # "By [part of] the Euphrates river:" -- a river named purely as an
+    # orientation landmark for the interior settlement list that follows
+    # (confirmed §5.20.6, Babylonia: every city in the list is inland,
+    # river mouths/coast are never mentioned). A coastal section never
+    # uses a bare "by the X river:" as its own list header -- it always
+    # reaches for sea/coast/promontory/mouth-of vocabulary instead -- so
+    # this is safe as a strong-tier signal, not just a weak fallback.
+    r"|\bby\s+(?:part\s+of\s+)?the\s+[A-Za-z]+\s+river\s*:",
+    re.I,
+)
+_INLAND_WEAK_RE = re.compile(
+    r"\b(?:the\s+)?(?:following|these)\s+(?:towns|cities|villages|komai)\b"
+    r"|\b(?:towns|cities|villages|komai):"
+    r"|\bits\s+towns\s+are\b|\bits\s+cities\s+are\b"
+    # "And the cities are these:" / "whose towns are these:" -- the same
+    # list-intro convention with subject and predicate swapped (confirmed
+    # §7.1.43 and §7.1.65). Without this, a section using this word order
+    # had no signal of its own at all and silently inherited whatever
+    # coastal/inland type happened to be carried in from far earlier in
+    # the book.map.
+    r"|\b(?:towns|cities|villages|komai)\s+are\s+(?:these|the\s+following)\b"
+    # The same swapped order again, but with the "these"/"the following"
+    # qualifier dropped entirely -- "The cities are:", "whose towns are:",
+    # "their towns are:" -- confirmed §5.9.16 ("...the Iaxamatai people.
+    # The cities are:") and several tribal-town idioms elsewhere ("whose
+    # towns are:", "whose cities are:") that don't use "its" the way the
+    # two dedicated patterns above already cover. A short qualifier phrase
+    # can sit between the noun and "are:" too -- "Cities on the Euphrates
+    # are:" (confirmed §5.7.2, which had no signal of its own at all and
+    # fell through to a stale inherited COASTAL type without this) --
+    # bounded so it doesn't reach across an unrelated sentence boundary.
+    r"|\b(?:towns|cities|villages|komai)\b[^.\n:]{0,50}\bare:",
     re.I,
 )
 
@@ -82,7 +282,11 @@ _COASTAL_LEAD_RE = re.compile(
     re.I,
 )
 _COASTAL_POINT_RE = re.compile(
-    r"\bpromontory\b|\bcape\b|\bheadland\b|\bbay\b|\bgulf\b|\bharbou?r\b|\bmouth\s+of\b|\bestuary\b",
+    # Bare "mouth(s)" catches both word orders ("mouth of the Vidua river"
+    # and "Maxeras river mouth", confirmed both used in this text -- see
+    # the same word-order tolerance already needed in tag.py's own
+    # river-mouth matching).
+    r"\bpromontory\b|\bcape\b|\bheadland\b|\bbay\b|\bgulf\b|\bharbou?r\b|\bmouths?\b|\bestuary\b",
     re.I,
 )
 
@@ -90,6 +294,26 @@ _BOUNDARY_RE = re.compile(
     r"\bbounded\b|\bbordered\b"
     r"|\bextends?\s+to\b"
     r"|\bthe\s+limit\s+of\b",
+    re.I,
+)
+
+# A region's own opening position/boundary statement (confirmed §2.5.1,
+# "LUSITANIA\nThe southern side of Lusitania is the common boundary with
+# the northern side of Baetica...") using the bare noun "boundary" instead
+# of one of the passive verb forms _BOUNDARY_RE above already covers.
+# Checked ahead of the coastal point-cue fallback in _own_signal (unlike
+# _BOUNDARY_RE itself, which is only a last-resort check there) because
+# this idiom's own citations routinely restate a river's mouth as the
+# boundary line's own starting landmark, which is exactly the kind of
+# point-level "mouth" cue that fallback exists to catch -- and here it's
+# the wrong signal: the same coordinate is cited again, correctly, as the
+# region's real coastal walk's own endpoint later in the book.map
+# (confirmed: Dourius river mouth, restated in 2.5.1's boundary
+# declaration and again as Lusitania's actual coastal walk's last point in
+# 2.5.3 -- one dedup'd Point that would otherwise carry a stray early
+# occurrence in the drawn coastline).
+_BOUNDARY_LEAD_RE = re.compile(
+    r"\bcommon\s+boundary\b|\bis\s+the\s+boundary\b",
     re.I,
 )
 
@@ -113,24 +337,87 @@ def _own_signal(section: Section) -> str | None:
         return ISLAND
     if _MOUNTAIN_RE.search(lead):
         return MOUNTAIN
-    if _INLAND_RE.search(lead):
+    if _RIVER_LEAD_RE.search(lead):
+        return RIVER
+    if _is_reverse_river_course(section):
+        return RIVER
+    if _INLAND_STRONG_RE.search(lead):
         return INLAND
-    phrases = " ".join(c.name_phrase for c in section.citations)
-    if _COASTAL_LEAD_RE.search(lead) or _COASTAL_POINT_RE.search(phrases):
+    if _COASTAL_LEAD_RE.search(lead):
+        return COASTAL
+    if _BOUNDARY_LEAD_RE.search(lead):
+        return BOUNDARY
+    weak_inland = bool(_INLAND_WEAK_RE.search(lead))
+    if section.citations:
+        coastal_hits = sum(1 for c in section.citations if _COASTAL_POINT_RE.search(c.name_phrase))
+    else:
+        coastal_hits = 0
+    if weak_inland:
+        # The weak inland tier ("the following towns are:") and coastal
+        # point-level cues can both fire on the same section -- e.g. a
+        # genuine inland tribal-town list (Britain's Brigantes, 2.3.10)
+        # that tacks on one trailing orientation aside mentioning a bay.
+        # One incidental coastal word among many plain city names must
+        # not flip the whole section; only trust point-level cues over
+        # the section's own explicit list header when they're not just
+        # incidental -- i.e. at least half the citations carry one
+        # (confirmed coastal on this basis: Hyrkania's own river-mouth
+        # list, §6.9.2, where nearly every citation is a "river mouth").
+        if coastal_hits and coastal_hits >= len(section.citations) / 2:
+            return COASTAL
+        return INLAND
+    # A region's own opening boundary declaration is routinely its
+    # section's *only* citation, restating the boundary line's own
+    # endpoint (a river mouth, a gulf, a sea) as the coordinate --
+    # confirmed §5.20.1, Babylonia: "...on the east by Susiana along the
+    # remaining parts of the Tigris river as far as its outflows into the
+    # Persian Gulf at COORD" is one citation, matching _BOUNDARY_RE
+    # ("bounded... by...") and _COASTAL_POINT_RE ("gulf") both at once --
+    # and the coastal_hits check below, being checked first, otherwise
+    # always wins. Scoped tightly to a *single*-citation section: once a
+    # section goes on to cite several more, real coastal points (confirmed
+    # distinct from this, e.g. §2.7.1, §3.5.1: a boundary-declaration lead
+    # followed by a genuine multi-point coastal walk), this section-wide
+    # override would wrongly swallow them too.
+    if len(section.citations) == 1 and _BOUNDARY_RE.search(lead):
+        return BOUNDARY
+    if coastal_hits:
         return COASTAL
     if _BOUNDARY_RE.search(lead):
+        return BOUNDARY
+    # A section can open with a boundary-line citation whose own lead
+    # doesn't reach "bounded"/"bordered" yet (confirmed §5.2.12: "On the
+    # east by Lykia, from the point after Kaunos to COORD" -- the word
+    # "bounded" only shows up in the *next* citation, "...it is bounded by
+    # Milyas..."). With zero coastal_hits already established above (no
+    # citation in this section names a promontory/cape/mouth/... either),
+    # a boundary word anywhere in the section's own citations is as
+    # trustworthy a last-resort signal as the lead-only check just above,
+    # and without it this fell through to a stale inherited COASTAL type
+    # from the unrelated coastal section before it.
+    if section.citations and any(_BOUNDARY_RE.search(c.name_phrase) for c in section.citations):
         return BOUNDARY
     return None
 
 
 def classify_sections(sections: list[Section]) -> dict[str, str]:
-    """Return {section.key: resolved_type}, in document order.
+    """Return {section.key: resolved_type}, in document order, from the
+    text alone -- no manual judgment applied here. A section with no
+    signal of its own inherits the previous section's resolved type,
+    scoped to the same book.map -- but never inherits INTO island/
+    mountain/river: those are always their own explicitly-marked digression
+    (a river's own course is typically a short appendix inside a region
+    otherwise described by boundary/coast/city lists, not the region's own
+    ongoing narrative type), so a no-signal continuation skips past them to
+    the last resolved coastal/inland/boundary type instead.
 
-    A section with no signal of its own inherits the previous section's
-    resolved type, scoped to the same book.map -- but never inherits INTO
-    island/mountain: those are always their own explicitly-marked
-    appendix, so a no-signal continuation skips past them to the last
-    resolved coastal/inland/boundary type instead.
+    Cases where the text genuinely gives no usable signal (or points the
+    wrong way) are not handled here: see ptolemy.overrides.
+    apply_section_overrides, a small git-committed CSV of curator
+    judgment applied as an explicit, separate pipeline step -- kept out of
+    this function so classify_sections stays a pure function of the
+    source text, and a manual correction never requires touching this
+    module or its tests.
     """
     resolved: dict[str, str] = {}
     last_type: dict[str, str] = {}          # book.map -> most recent resolved type
@@ -148,7 +435,93 @@ def classify_sections(sections: list[Section]) -> dict[str, str]:
 
         resolved[section.key] = rtype
         last_type[bm] = rtype
-        if rtype not in (ISLAND, MOUNTAIN):
+        if rtype not in (ISLAND, MOUNTAIN, RIVER):
             last_carryable[bm] = rtype
 
     return resolved
+
+
+def is_named_island_walk(section: Section) -> bool:
+    """True for a section that is one named island's own coastal walk
+    (Lesbos, Euboia, Karpathos...), as opposed to a section that lists
+    several distinct islands together (Ebuda, the Cyclades...). Only
+    meaningful for a section already resolved to ISLAND; lines.py uses
+    this to decide which island sections it's safe to connect by
+    catalogue-order adjacency (see build_island_walks).
+    """
+    return bool(_NAMED_ISLAND_WALK_RE.search(section.lead_text))
+
+
+def starts_new_named_island(name_phrase: str) -> bool:
+    """True if a citation's own name_phrase opens with a fresh 'Description
+    of <Name>:' sub-heading. parser.extract_citations pulls a short bare
+    heading line into the *next* citation's own phrase rather than
+    dropping it (see its docstring) -- this is how a second named island's
+    walk, packed into the same §-numbered section as the first, becomes
+    detectable at all. build_island_walks uses this to start a fresh trail
+    instead of connecting the new island's points onto the previous one's.
+    """
+    return bool(_ISLAND_SUBHEADING_RE.search(name_phrase))
+
+
+# Ptolemy's own convention for opening a named region's boundary
+# declaration ("Position of Epiros...", "Position of the Peloponnesos...")
+# -- almost always a book.map's own first section, where it needs no
+# special handling (dedup/line-building are already scoped per book.map).
+# The one confirmed exception is §3.14.25, "Position of the Peloponnesos",
+# appearing *mid* book.map 3.14: Ptolemy's own Achaia map covers both
+# mainland Greece and the separate Peloponnese peninsula as one catalogue
+# unit, so nothing about book.map scoping keeps their two, only-narrowly-
+# connected coastlines apart. lines.py uses this to force a hard break
+# in the coastal-walk stream there, rather than let greedy distance-based
+# stitching treat both as one continuous (and, worse, spuriously
+# self-closing -- confirmed connecting Achaia's own mainland starting
+# point back to the Peloponnese's own last point) trail.
+_NEW_REGION_LEAD_RE = re.compile(r"^position\s+of\b", re.I)
+
+# The same "hard break, don't stitch across this" signal, but for a new
+# *coastal side* of the same region rather than a whole new region --
+# "On the north it is bounded by a part of the Euxine Pontos, which is
+# thus described: after the mouth of the Pontos and the sanctuary of
+# Artemis..." (confirmed §5.1.5, Bithynia). Bithynia's own coast runs two
+# separate directions from the same Bosporos-mouth starting point (west
+# along the Propontis/gulf side, §5.1.2-5.1.4; north along the Black Sea
+# side, §5.1.5-5.1.7) -- the second arc's own lead restates that shared
+# starting landmark ("the sanctuary of Artemis", already cited as "Hieron
+# of Artemis" in §5.1.2) purely for orientation, the same hand-off idiom
+# as "Position of X", just without a fresh citation of its own attached
+# to it. Without the split, the Propontis arc's own end (inland, up the
+# Ryndakos river to its sources) connected directly to the Black Sea arc's
+# start (confirmed P3523/P3525), a nonsensical jump across the whole
+# Bithynian peninsula.
+_NEW_COASTAL_SIDE_LEAD_RE = re.compile(r"\bwhich\s+is\s+thus\s+described\s*:\s*after\b", re.I)
+
+
+def is_new_region_declaration(section: Section) -> bool:
+    return bool(_NEW_REGION_LEAD_RE.search(section.lead_text)) or bool(_NEW_COASTAL_SIDE_LEAD_RE.search(section.lead_text))
+
+
+# A third variant of the same hand-off idiom, except this one sits inside
+# a *citation's own name_phrase* rather than a section's lead_text --
+# "...by the onward shores of Pontos until the border with lower Moesia,
+# at [COORD]" (confirmed §3.11.3, Thrace; also §3.10.3's own symmetric
+# "...as far as the limit point toward Thrace, at COORD", the same shared
+# boundary landmark cited from Lower Moesia's own side). Thrace's coast,
+# like Bithynia's, runs two separate directions from its Bosporos-mouth
+# boundary -- but unlike Bithynia's restated hand-off, this citation's own
+# coordinate genuinely *is* the boundary landmark itself, immediately
+# followed by the new arc's real points (confirmed §3.11.3: this citation
+# is only ~0.3 degrees from Mesembria, the very next citation -- nowhere
+# near the "far away, self-intersecting jump" its coordinate would suggest
+# if left connected *backward* to whatever preceded it instead). So this
+# citation stays a real point in the walk (unlike Bithynia's or the
+# Peloponnese's own pure-orientation restatements, which carry no fresh
+# waypoint of their own) -- it just needs to open a fresh segment rather
+# than close out the old one, or the point right before it in document
+# order (confirmed P1972) stitched straight across the whole peninsula to
+# reach it.
+_NEW_COASTAL_ARC_PHRASE_RE = re.compile(r"\buntil\s+the\s+border\s+with\b|\bthe\s+limit\s+point\s+toward\b", re.I)
+
+
+def starts_new_coastal_arc(name_phrase: str) -> bool:
+    return bool(_NEW_COASTAL_ARC_PHRASE_RE.search(name_phrase))
