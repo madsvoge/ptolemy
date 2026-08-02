@@ -227,7 +227,17 @@ def test_river_branching_network_matches_users_india_worked_example():
     # Binda, each ending at its own separately catalogued mouth --
     # including the hand-confirmed spelling variants between a RIVER
     # section's own wording and its coastal mouth citation (Moghis/
-    # Mophis, Goaris/Binda's "Benda").
+    # Mophis, Goaris/Binda's "Benda"), and section-chaining: the
+    # bifurcation lives in the *next* RIVER section, §7.1.32, continuing
+    # straight on from §7.1.31's Moghis confluence with no name of its
+    # own repeated ("current" carries across a RIVER->RIVER section
+    # boundary -- see _walk_river_sections). The real corpus's own
+    # §7.1.32 also opens with an unrelated "Sources of the River
+    # Nanagouna" citation right before the bifurcation, which the text
+    # doesn't disambiguate from Moghis's own continuation -- deliberately
+    # left out of this fixture since resolving that specific ambiguity
+    # is still an open question, not something this mechanism claims to
+    # solve.
     text = (
         "§ 7.1.4  A description of the coast\n"
         "Mouth of the River Mophis 97°00' . 18°00'\n"
@@ -238,8 +248,7 @@ def test_river_branching_network_matches_users_india_worked_example():
         "The sources of the River Namados in the Ouindion range 109°00' . 26°00'\n"
         "The bend of the river at Seripala 100°00' . 22°00'\n"
         "Its confluence with the River Moghis 98°00' . 19°00'\n\n\n"
-        "§ 7.1.32  Sources of the River Nanagouna from the Ouindion range 108°00' . 25°00'\n"
-        "Where it bifurcates into the Goaris and Binda 99°00' . 20°00'\n"
+        "§ 7.1.32  Where it bifurcates into the Goaris and Binda 99°00' . 20°00'\n"
     )
     points, lines = _build(text)
     rivers = {l.feature_name: l for l in lines if l.kind == "river"}
@@ -261,6 +270,60 @@ def test_river_branching_network_matches_users_india_worked_example():
     # Moghis/Mophis: a spelling variant between the RIVER section's own
     # wording and the coastal mouth's, resolved via the alias table.
     assert names_of("Mophis") == ["Its confluence with the River Moghis", "Mouth of the River Mophis"]
+
+
+def test_bifurcation_extends_the_trunks_own_trail_across_a_river_section_boundary():
+    # When the next section is *also* RIVER-classified (unlike the
+    # simplified fixture above, where §7.1.32 is a single bare sentence),
+    # a bifurcation's implicit parent -- "current", carried over the
+    # section boundary -- gets the branch point added to its own trail
+    # too, ending the trunk exactly where it splits rather than one
+    # citation short.
+    text = (
+        "§ 7.1.4  A description of the coast\n"
+        "Mouth of the River Mophis 97°00' . 18°00'\n"
+        "Mouth of the river Goaris 95°00' . 17°00'\n\n\n"
+        "§ 7.1.31  Sources of the River Namados in the Ouindion range 109°00' . 26°00'\n"
+        "Its confluence with the River Moghis 98°00' . 19°00'\n\n\n"
+        "§ 7.1.32  And of the other rivers, where it bifurcates into the Goaris and Binda 99°00' . 20°00'\n"
+    )
+    points, lines = _build(text)
+    rivers = {l.feature_name: l for l in lines if l.kind == "river"}
+
+    def names_of(feature_name):
+        return [next(p.name for p in points if p.id == pid) for pid in rivers[feature_name].point_ids]
+
+    assert names_of("Mophis") == [
+        "Its confluence with the River Moghis",
+        "of the other rivers, where it bifurcates into the Goaris and Binda",
+        "Mouth of the River Mophis",
+    ]
+
+
+def test_river_section_current_does_not_leak_into_unrelated_boundary_content():
+    # Confirmed regression risk: once "current" can cross a section
+    # boundary at all, it must not also leak into an unrelated BOUNDARY
+    # section's own bare "and"-led citations just because they happen to
+    # follow a RIVER section in document order (confirmed §4.2: the
+    # Ampsagas river was absorbing unrelated "Cinnaba mountains"/"Beryn
+    # mountains" boundary citations this way before this was scoped to
+    # RIVER->RIVER section pairs only).
+    text = (
+        "§ 4.2.11  A description of the coast\n"
+        "Ampsagas river mouth 20°00' . 37°00'\n"
+        "river sources 21°00' . 38°00'\n\n\n"
+        "§ 4.2.12  It is bounded on the east by Africa along the Ampsagas river 22°00' . 36°00'\n"
+        "and 23°00' . 35°00'\n\n\n"
+        "§ 4.2.15  Notable mountains here are as follows:\n"
+        "Cinnaba mountains 24°00' . 34°00'\n"
+        "and Beryn mountains 25°00' . 33°00'\n"
+    )
+    points, lines = _build(text)
+    rivers = {l.feature_name: l for l in lines if l.kind == "river"}
+    assert set(rivers) == {"Ampsagas"}
+    names = [next(p.name for p in points if p.id == pid) for pid in rivers["Ampsagas"].point_ids]
+    assert "Cinnaba mountains" not in names
+    assert "Beryn mountains" not in names
 
 
 def test_coastal_mouth_immediately_followed_by_its_own_source_is_connected():

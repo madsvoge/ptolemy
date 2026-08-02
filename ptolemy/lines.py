@@ -433,12 +433,21 @@ _RIVER_NAME_TEMPLATES = [
 ]
 _RIVER_DUAL_TEMPLATES = [
     re.compile(r"(?i:confluence|junction)\s+of\s+(?:the\s+)?([A-Z][\w-]*)\s+and\s+(?:the\s+)?([A-Z][\w-]*)"),
-    # "bifurcates into"/"splits into" A and B (confirmed both verbs used
-    # for the same idiom -- §7.1.32 vs §5.6.7).
-    re.compile(r"(?i:bifurcat\w*|splits?)\s+into\s+(?:the\s+)?([A-Z][\w-]*)\s+and\s+(?:the\s+)?([A-Z][\w-]*)"),
     # "the Hermos and the Paktolos rivers unite" -- the reverse word order
     # of the "confluence of A and B" template above (confirmed §5.2.6).
     re.compile(r"([A-Z][\w-]*)\s+and\s+(?:the\s+)?([A-Z][\w-]*)\s+(?i:rivers?)?\s*(?i:unite\w*)"),
+]
+# "Where it bifurcates into the Goaris and Binda" -- unlike the dual
+# templates above, where *both* parties are named in the citation itself,
+# a bifurcation/split names only its two children; the party doing the
+# bifurcating ("it") is only ever "current", implicit. Kept as its own
+# template list so that party gets registered too (see the walk loop) --
+# confluence/junction/unite citations must NOT also touch "current" the
+# same way (confirmed regression: §7.1.27's "Confluence of the Koa and
+# Indus" would otherwise wrongly also extend whatever unrelated river,
+# e.g. Zaradros, happened to be "current" at that point in the walk).
+_RIVER_BRANCH_TEMPLATES = [
+    re.compile(r"(?i:bifurcat\w*|splits?)\s+into\s+(?:the\s+)?([A-Z][\w-]*)\s+and\s+(?:the\s+)?([A-Z][\w-]*)"),
 ]
 _RIVER_JOIN_TEMPLATES = [
     re.compile(r"(?i:confluence|junction)\s+with\s+(?:the\s+)?(?i:river\s+)?([A-Z][\w-]*)"),
@@ -517,6 +526,14 @@ def _river_dual_names(phrase: str) -> tuple[str, str] | None:
     return None
 
 
+def _river_branch_names(phrase: str) -> tuple[str, str] | None:
+    for template in _RIVER_BRANCH_TEMPLATES:
+        m = template.search(phrase)
+        if m and m.group(1).lower() not in _RIVER_NAME_STOPWORDS and m.group(2).lower() not in _RIVER_NAME_STOPWORDS:
+            return m.group(1), m.group(2)
+    return None
+
+
 def _looks_like_river_continuation(phrase: str) -> bool:
     stripped = phrase.strip()
     if not stripped:
@@ -577,10 +594,22 @@ def _walk_river_sections(sections_with_flags: list[tuple[Section, bool]],
     outside a RIVER section, only a "mouth of..."/"fork of..." citation
     may open a name this walk hasn't seen yet. Returns each group already
     reordered (see _reorder_river_trail) so its mouth sits at whichever
-    end the text actually places it."""
+    end the text actually places it.
+
+    "current" persists across a section boundary when both sides are
+    RIVER-classified, not just within one section -- a river's own
+    narrative routinely continues into the very next RIVER section
+    without repeating its name (confirmed §7.1.31 -> §7.1.32: Namados/
+    Baris bend, then confluence with Moghis, and only *then*, in the
+    next section, the bifurcation into Goaris and Binda -- two sections
+    telling one continuous course). It's still only ever read forward,
+    and a section that opens with its own explicit declaration (a
+    "Sources of..."/"mouth of..." citation) immediately overrides
+    whatever was "current" before it, same as always."""
     raw_groups: dict[str, list[tuple[Point, str, bool]]] = {}
     seen_ids: dict[str, set[str]] = {}
     display_names: dict[str, str] = {}
+    current: str | None = None
 
     def key_for(name: str) -> str:
         key = _normalize_river_name(name)
@@ -602,8 +631,23 @@ def _walk_river_sections(sections_with_flags: list[tuple[Section, bool]],
         raw_groups[key].append((point, section_key, is_mouth))
         seen_ids[key].add(point.id)
 
+    previous_was_river_section = False
     for section, is_river_section in sections_with_flags:
-        current: str | None = None
+        # "current" only carries into a new section when *both* sides of
+        # the boundary are themselves RIVER-classified (confirmed needed
+        # §7.1.31 -> §7.1.32, both RIVER: Moghis's confluence carries
+        # straight into the next section's bifurcation). Anywhere else,
+        # carrying it through the anaphoric-continuation path picked up
+        # unrelated boundary/mountain content that merely opens with a
+        # bare lowercase "and" (confirmed regression: §4.2's Ampsagas
+        # absorbing "Cinnaba mountains"/"Beryn mountains" this way once
+        # persistence was unconditional). A RIVER section's own explicit
+        # citations stay just as reliable a source of *new* current as
+        # ever -- this only narrows how far a name-free continuation is
+        # trusted to reach.
+        if not (previous_was_river_section and is_river_section):
+            current = None
+        previous_was_river_section = is_river_section
         for citation in section.citations:
             point = occurrence_index[(section.key, citation.char_offset)]
             phrase = citation.name_phrase
@@ -611,6 +655,24 @@ def _walk_river_sections(sections_with_flags: list[tuple[Section, bool]],
             dual = _river_dual_names(phrase)
             if dual:
                 key_a, key_b = key_for(dual[0]), key_for(dual[1])
+                register(key_a, point, phrase, section.key)
+                if key_b != key_a:
+                    register(key_b, point, phrase, section.key)
+                current = key_b
+                continue
+
+            # A bifurcation/split names only its two children -- the
+            # party doing the bifurcating is "current", implicit in the
+            # citation's own "it" (confirmed §7.1.32: "Where it
+            # bifurcates into the Goaris and Binda" continues straight on
+            # from §7.1.31's Moghis confluence). Registering onto current
+            # too is what makes that trunk's own trail end exactly at the
+            # branch point, instead of stopping short one citation early.
+            branch = _river_branch_names(phrase)
+            if branch:
+                if current is not None:
+                    register(current, point, phrase, section.key)
+                key_a, key_b = key_for(branch[0]), key_for(branch[1])
                 register(key_a, point, phrase, section.key)
                 if key_b != key_a:
                     register(key_b, point, phrase, section.key)
