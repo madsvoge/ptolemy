@@ -11,6 +11,7 @@ from .parser import Section
 
 ISLAND = "island"
 MOUNTAIN = "mountain"
+RIVER = "river"
 INLAND = "inland"
 COASTAL = "coastal"
 BOUNDARY = "boundary"
@@ -121,6 +122,43 @@ _MOUNTAIN_RE = re.compile(
     # this text (2 uses total, the other about cities not mountains) that
     # requiring only "mountains" anywhere earlier in the same line is safe.
     r"|\bmountains?\b[^.\n]*\bthus\s+named\b",
+    re.I,
+)
+
+# A section whose own lead is fundamentally *about* a river's course --
+# its own sources, a bend, a confluence, a branch -- rather than a region
+# whose boundary/coast/city-list happens to mention a river in passing.
+# Two shapes, both confirmed throughout books 5-7's own river catalogues:
+#   - Catalogue style: the section opens by naming the source(s) directly
+#     ("Sources of the River Zaradros", confirmed §7.1.27 and ten more
+#     single-citation siblings in book 7.1 alone; "Source of Styx water",
+#     confirmed §6.7.40).
+#   - Narrative style: the river itself is the sentence's own grammatical
+#     subject, performing a river-course verb (flows/discharges/descends/
+#     enters/branches off/joins/unites/reunites) -- "Another river flows
+#     into the Margos..." (§6.10.4), "Rivers flow through Baktriane..."
+#     (§6.11.2), "From Maiandros descend the rivers..." (§7.2.10), "The
+#     rivers which form the island reunite at..." (§4.5.58).
+# Deliberately anchored to the *start* of the lead (^) for both shapes --
+# a region's own boundary declaration routinely mentions a river's source
+# too ("bounded... by the western part of the river Danube", §2.11.3;
+# "POSITION OF THE SOGDIANOI... bounded... by that part of Scythia which
+# is limited by the sources of the Iaxartes", §6.12.1), but there the
+# river is buried mid-sentence, never the sentence's own opening subject
+# -- confirmed zero false positives against every "source(s)"/"spring(s)"
+# lead in this corpus checked by hand.
+_RIVER_LEAD_RE = re.compile(
+    r"^(?:the\s+|and\s+by\s+the\s+)?(?:sources?|springs?)\s+of\b"
+    r"|^(?:the\s+)?rivers?\b[^.\n]{0,20}\b(?:flows?|flowing|which\s+flow)\b"
+    r"|^(?:another|a(?:\s+notable)?)\s+river\s+(?:flows?|enters?)\b"
+    r"|^there\s+flows?\b[^.\n]{0,80}\brivers?\b"
+    r"|^from\s+[a-z][\w-]*(?:,?\s+[\w-]+)?\s+(?:\w+\s+)?rivers?\s+(?:discharges?|discharge)\b"
+    r"|^from\s+[a-z][\w-]*\s+descends?\s+(?:the\s+)?rivers?\b"
+    r"|^from\s+(?:these|those)\s+mountains?\s+rivers?\s+flow\b"
+    r"|^of\s+the\s+(?:streams?|rivers?)\s+which\s+(?:join|unite)\b"
+    r"|^and\s+of\s+the\s+other\s+rivers?\b"
+    r"|^the\s+(?:following\s+)?rivers?\s+(?:that|which|enter)\b"
+    r"|^rivers?\s+(?:flow|flowing)\b",
     re.I,
 )
 
@@ -265,6 +303,8 @@ def _own_signal(section: Section) -> str | None:
         return ISLAND
     if _MOUNTAIN_RE.search(lead):
         return MOUNTAIN
+    if _RIVER_LEAD_RE.search(lead):
+        return RIVER
     if _INLAND_STRONG_RE.search(lead):
         return INLAND
     if _COASTAL_LEAD_RE.search(lead):
@@ -329,9 +369,11 @@ def classify_sections(sections: list[Section]) -> dict[str, str]:
     text alone -- no manual judgment applied here. A section with no
     signal of its own inherits the previous section's resolved type,
     scoped to the same book.map -- but never inherits INTO island/
-    mountain: those are always their own explicitly-marked appendix, so a
-    no-signal continuation skips past them to the last resolved coastal/
-    inland/boundary type instead.
+    mountain/river: those are always their own explicitly-marked digression
+    (a river's own course is typically a short appendix inside a region
+    otherwise described by boundary/coast/city lists, not the region's own
+    ongoing narrative type), so a no-signal continuation skips past them to
+    the last resolved coastal/inland/boundary type instead.
 
     Cases where the text genuinely gives no usable signal (or points the
     wrong way) are not handled here: see ptolemy.overrides.
@@ -357,7 +399,7 @@ def classify_sections(sections: list[Section]) -> dict[str, str]:
 
         resolved[section.key] = rtype
         last_type[bm] = rtype
-        if rtype not in (ISLAND, MOUNTAIN):
+        if rtype not in (ISLAND, MOUNTAIN, RIVER):
             last_carryable[bm] = rtype
 
     return resolved

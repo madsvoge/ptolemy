@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 
-from .classify import BOUNDARY, COASTAL, ISLAND, MOUNTAIN
+from .classify import BOUNDARY, COASTAL, ISLAND, MOUNTAIN, RIVER
 from .points import Point, TRIBAL_CITY_BARE_RE, TRIBAL_CITY_RE
 
 _ISLAND_NAME_RE = re.compile(r"\bisland", re.I)
@@ -298,7 +298,13 @@ def tag_point(point: Point, resolved: dict[str, str]) -> set[str]:
         ("island", bool(_ISLAND_NAME_RE.search(name)) or ISLAND in section_types),
         ("mountain", bool(_MOUNTAIN_NAME_RE.search(name)) or MOUNTAIN in section_types),
         ("river_mouth", river_mouth_hit),
-        ("river", bool(_RIVER_RE.search(name))),
+        # A point only earns the 'river' primary tag from its own name if it
+        # actually sits in a section that is *about* a river's course (Step
+        # 2's RIVER classification) -- a bare vocabulary match elsewhere
+        # (e.g. a boundary sentence that merely crosses a named river) isn't
+        # a river citation, it's a river mentioned in passing. Those get
+        # 'river_out_of_section' below instead, for later review.
+        ("river", bool(_RIVER_RE.search(name)) and RIVER in section_types),
         # Checked ahead of harbor/coast: a tribal-capital restatement
         # ("...up to the Gabaeum promontory, the Osismi whose city is
         # Vorgum") routinely names a coastal landmark in passing on its way
@@ -372,8 +378,18 @@ def tag_point(point: Point, resolved: dict[str, str]) -> set[str]:
     if primary == "mountain":
         if river_mouth_hit:
             tags.add("river_mouth")
-        elif _RIVER_RE.search(name):
+        elif _RIVER_RE.search(name) and RIVER in section_types:
             tags.add("river")
+    # River vocabulary matched somewhere on this point's name, but not in a
+    # RIVER-classified section and the point didn't otherwise earn a river
+    # role (river/river_mouth) above -- flag it as a diagnostic for later
+    # human review instead of silently dropping the signal or wrongly
+    # promoting it to a full river citation. Point-level vocabulary alone
+    # isn't enough: the same word shows up incidentally in boundary/coastal
+    # prose that merely crosses or mentions a river without describing its
+    # course (the whole reason RIVER became its own section type).
+    if _RIVER_RE.search(name) and RIVER not in section_types and not tags & {"river", "river_mouth"}:
+        tags.add("river_out_of_section")
     # A point cited in a boundary/orientation section is a boundary marker
     # *in addition to* whatever its own name says (it's frequently also a
     # duplicate of a point cited properly elsewhere -- see points.py dedup).
