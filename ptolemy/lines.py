@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import math
 import re
 
-from .classify import COASTAL, ISLAND, is_named_island_walk, is_new_region_declaration, starts_new_coastal_arc, starts_new_named_island
+from .classify import BOUNDARY, COASTAL, ISLAND, RIVER, is_named_island_walk, is_new_region_declaration, starts_new_coastal_arc, starts_new_named_island
 from .parser import Section
 from .points import Point
 from .tag import RESTATED_LANDMARK_RE
@@ -318,6 +318,385 @@ def build_islands(points: list[Point], resolved: dict[str, str], cap: float = MO
 
 
 # ---------------------------------------------------------------------
+# Rivers: "sources to mouth", per the user's own methodology -- the exact
+# opposite of the reverted, whole-book_map name-matching approach this
+# module used earlier. A river's course is walked from its own citations
+# -- but "its own citations" turns out not to mean only the ones inside a
+# RIVER-classified section (see classify.py). Confirmed real and common
+# (32 cases corpus-wide, e.g. §2.11.1: "Mouths of the river Amisius" /
+# "Sources of the river"; §7.3.2: "the mouth of the river Aspithra" /
+# "Sources of the river..."; §3.1.5's Tiber: "mouth of the Tiber river" /
+# "where the river turns toward the west"): an ordinary COASTAL walk
+# routinely gives a river's mouth and then, a citation or two later,
+# *also* gives that same river's own source/turn/confluence -- Ptolemy's
+# text doesn't reserve that content for a dedicated river section at all.
+# So a book.map's own COASTAL sections are walked by the exact same
+# mechanism as its RIVER sections, just with a narrower rule for what may
+# *open* a fresh river (see the is_river distinction in
+# _walk_river_sections): only a citation that says "mouth of/at NAME
+# river" may start tracking a not-yet-seen name outside a RIVER section --
+# a bare "NAME river" mention must not, or every province whose boundary
+# happens to be phrased "...by the Euphrates river at COORD" would spawn
+# its own throwaway group. Inside a RIVER section (whose own classify.py
+# signal already establishes "this is about a river's course"), any of
+# the forms below may open one, same as always.
+#
+# Within that scope, a citation is one of:
+#   - a *dual* declaration -- a confluence/junction ("Confluence of the
+#     Koa and Indus") or a bifurcation ("Where it bifurcates into the
+#     Goaris and Binda") -- naming two rivers at once. This citation is a
+#     shared graph node between both of them (confirmed throughout book
+#     7.1's Indus/Ganges tributary network, §7.1.27/§7.1.29/§7.1.32).
+#   - a *single* declaration of the river's own name ("Sources of the
+#     River Solen...", "the Araxes river, which flows...", "the Lykos,
+#     the springs of which..."), which becomes (or continues) the
+#     "current" river for this section's walk. If the same phrase *also*
+#     says this river joins/branches into another one by name ("where it
+#     joins with the Dorias river"), the point is a shared node between
+#     the outgoing and incoming rivers, same as a dual declaration.
+#   - a *join* onto a river named only implicitly ("it joins the
+#     Euphrates at", "the junction with the Tigris at", "this one flows
+#     into the Oxos at") -- shared between whatever was "current" and the
+#     named target, which becomes "current" from here on.
+#   - an anaphoric continuation with no name of its own ("The point where
+#     it turns", "first turn of the river") -- continues "current".
+# "current" resets to nothing at the start of every section walked (never
+# carried over from the previous section, even an adjacent one in the
+# same catalogue run -- confirmed needed by §7.1.34, which names Baris
+# then Solen back to back before one shared "the point where it turns"
+# that belongs only to whichever was named last, Solen). A river's own
+# *group* of points, however, persists across the whole book.map: once
+# any section opens (or re-mentions) a name, a later section's citation
+# for that same name -- in either document-order direction, mouth-first
+# or source-first -- joins the same group (confirmed both orders happen:
+# §7.1's Indian rivers give the source in a RIVER section *before* their
+# coastal mouth citation; §2.11.1 gives the mouth *before* its section's
+# own "Sources of the river").
+#
+# A citation that names no river and isn't a recognizable continuation
+# idiom is dropped from the walk rather than guessed at -- confirmed real
+# and necessary: §6.10.4 opens on an unnamed tributary of the Margos and
+# then, with no further river vocabulary at all, lists that region's
+# ordinary bank cities (Rea, Antiocheia Margiane...); blanket-continuing
+# "current" through those would draw a nonsense river line through city
+# coordinates. The heuristic used: a citation that starts with a capital
+# letter (reads as its own fresh, standalone proper-noun citation, the
+# same shape an ordinary city citation has) is only trusted as a
+# continuation if it *also* carries real river vocabulary somewhere in it
+# (confirmed needed both ways: rejects "Draga"/"Sarouon" after "Source of
+# Styx water" §6.7.40, but keeps "another in Ottorokorrha" after
+# "Bautisos...has one of its sources..." §6.16.3, which starts lowercase).
+#
+# No group ever needing a separate "find the matching mouth" search is
+# the whole reason for walking COASTAL sections in the same pass as RIVER
+# ones: the mouth citation is just another member of the same
+# document-order group, wherever in the book.map it happens to sit. A
+# river with no mouth citation anywhere in its own book.map (or none this
+# module recognizes) simply ends its trail at its last real citation --
+# not an error: plenty of these are tributaries whose text already ends
+# them at a confluence with a bigger named river instead (confirmed
+# throughout book 7.1's Indus network -- Koa/Souastos/Bidaspes/Sandabal/
+# Adris/Bidasis never get their own "Mouth of X" citation, only ever a
+# confluence with Indus).
+_RIVER_NAME_STOPWORDS = {
+    "the", "a", "an", "and", "of", "in", "on", "at", "to", "from", "which",
+    "is", "below", "above", "after", "between", "near", "next", "this",
+    "that", "its", "toward", "towards", "then", "again", "first", "second",
+    "third", "another", "one", "part", "other", "same", "such", "these",
+    "those", "each", "it",
+}
+
+_RIVER_NAME_TEMPLATES = [
+    re.compile(r"(?i:sources?|springs?)\s+of\s+(?i:the\s+)?(?i:river\s+)?([A-Z][\w-]*)"),
+    re.compile(r"(?i:mouths?)\s+of\s+(?i:the\s+)?(?i:river\s+)?([A-Z][\w-]*)"),
+    # "The fork of the Rhabon river..." -- a boundary line that traces a
+    # river's own fork/bend points (confirmed §3.8.1, Dacia's boundary
+    # following the Tibiskos/Rhabon/Kiabros/Aloutas in turn) is textually
+    # a BOUNDARY-classified section, not a RIVER or COASTAL one, but each
+    # of these citations is still unambiguously a river-topology point.
+    # Without its own template here, "fork" isn't in the name-extraction
+    # list at all (only in the continuation vocabulary below), so a fresh
+    # river name introduced this way was invisible and silently swept
+    # into whichever *other* name happened to be "current" instead.
+    re.compile(r"(?i:forks?)\s+of\s+(?i:the\s+)?(?i:river\s+)?([A-Z][\w-]*)"),
+    re.compile(r"([A-Z][\w-]*)\s+(?i:river)\b"),
+    re.compile(r"(?i:river)\s+([A-Z][\w-]*)\b"),
+    re.compile(r"(?i:so-called)\s+(?:the\s+)?([A-Z][\w-]*)"),
+    re.compile(r"(?i:called)\s+(?:the\s+)?([A-Z][\w-]*)"),
+    re.compile(r"([A-Z][\w-]*)(?:\s+river)?,\s*(?i:the\s+)?(?i:springs|sources)\s+of\s+which"),
+    re.compile(r"([A-Z][\w-]*),\s*(?i:whose\s+springs\s+are)"),
+    # "two rivers, the Oichardes..." -- an appositive naming right after
+    # the generic word "river(s)" itself (confirmed §6.16.3), distinct
+    # from the "NAME river"/"river NAME" templates above (no "river" word
+    # sits directly next to the name here).
+    re.compile(r"(?i:rivers?),\s+(?:the\s+)?([A-Z][\w-]*)"),
+]
+_RIVER_DUAL_TEMPLATES = [
+    re.compile(r"(?i:confluence|junction)\s+of\s+(?:the\s+)?([A-Z][\w-]*)\s+and\s+(?:the\s+)?([A-Z][\w-]*)"),
+    # "bifurcates into"/"splits into" A and B (confirmed both verbs used
+    # for the same idiom -- §7.1.32 vs §5.6.7).
+    re.compile(r"(?i:bifurcat\w*|splits?)\s+into\s+(?:the\s+)?([A-Z][\w-]*)\s+and\s+(?:the\s+)?([A-Z][\w-]*)"),
+    # "the Hermos and the Paktolos rivers unite" -- the reverse word order
+    # of the "confluence of A and B" template above (confirmed §5.2.6).
+    re.compile(r"([A-Z][\w-]*)\s+and\s+(?:the\s+)?([A-Z][\w-]*)\s+(?i:rivers?)?\s*(?i:unite\w*)"),
+]
+_RIVER_JOIN_TEMPLATES = [
+    re.compile(r"(?i:confluence|junction)\s+with\s+(?:the\s+)?(?i:river\s+)?([A-Z][\w-]*)"),
+    re.compile(r"(?i:joins?|unites?)\s+(?:with\s+)?(?:the\s+)?([A-Z][\w-]*)"),
+    re.compile(r"(?i:flows?\s+into)\s+(?:the\s+)?(?i:river\s+)?([A-Z][\w-]*)"),
+    re.compile(r"(?i:branch(?:es)?\s+off\s+from)\s+(?:the\s+)?(?i:river\s+)?([A-Z][\w-]*)"),
+]
+# Whether a single-name citation ("...the Euphrates river at") is *also* a
+# join event onto whatever was "current" before it -- distinct from a bare
+# declaration ("Sources of the River Koa") which starts fresh instead.
+_RIVER_JOIN_TRIGGER_RE = re.compile(
+    r"\bjoins?\b|\bunites?\b|\bconfluence\b|\bjunction\b|\bflows?\s+into\b|\bbranch(?:es)?\s+off\s+from\b", re.I,
+)
+# Same bare-word philosophy as tag.py's own _RIVER_MOUTH_RE (a "mouth of"
+# citation is just as often worded the other way round, "NAME river
+# mouth", or without "of" at all -- word order isn't the reliable part,
+# the word "mouth(s)" itself is), including its one exception: "mouth of
+# Pontos" is Ptolemy's idiom for the Bosporos strait, not a river mouth.
+# Used both to open a brand-new river name outside a RIVER section (see
+# is_river_section below) and to know which end of a finished trail is
+# the river's own downstream terminus (see _reorder_river_trail).
+_RIVER_MOUTH_WORD_RE = re.compile(
+    r"\bmouths?\s+of\b(?!\s+Pontos\b)|\bmouths?\b(?!\s+of\s+Pontos\b)|\bestuary\b|\boutlet\b", re.I,
+)
+# A river's *fork* (confirmed §3.8.1, Dacia's boundary tracing the
+# Tibiskos/Rhabon/Kiabros/Aloutas in turn) is just as unambiguous an
+# opening idiom outside a RIVER section as its mouth -- but unlike a
+# mouth, a fork is a mid-course bifurcation, not the river's own
+# downstream end, so it's kept separate from _RIVER_MOUTH_WORD_RE rather
+# than folded into it.
+_RIVER_FORK_WORD_RE = re.compile(r"\bforks?\s+of\b", re.I)
+_RIVER_OPENING_WORD_RE = re.compile(_RIVER_MOUTH_WORD_RE.pattern + r"|" + _RIVER_FORK_WORD_RE.pattern, re.I)
+# A citation with no name of its own is only trusted as a continuation if
+# it carries this vocabulary *or* doesn't read as its own fresh
+# proper-noun citation to begin with (see the capitalisation check in
+# _looks_like_river_continuation).
+_RIVER_CONTINUATION_VOCAB_RE = re.compile(
+    r"\bturns?\b|\bbends?\b|\bsources?\b|\bsprings?\b|\bconfluence\b|\bjoins?\b|\bunites?\b"
+    r"|\bforks?\b|\bbifurcat\w*\b|\bsplits?\s+into\b|\bhead\s+of\b|\blakes?\b|\bdivert\w*\b|\briver\b",
+    re.I,
+)
+# Hand-confirmed spelling variants between a river's own citation in one
+# part of a book.map and its own citation elsewhere in the same book.map
+# (typically a RIVER section's source/confluence wording vs. a coastal
+# section's separately catalogued "Mouth of X") -- not a generic fuzzy
+# matcher, which was tried and rejected: at any cutoff loose enough to
+# catch these, it also merges genuinely different rivers that happen to
+# be short and similar (confirmed false positive: Baris/Adris, Bidasis/
+# Bidaspes, both real, distinct rivers in book 7.1's own tributary
+# network).
+_RIVER_NAME_ALIASES = {
+    "mophis": "moghis",
+    "manada": "manda",
+    "benda": "binda",
+    "bibasis": "bidasis",
+}
+
+
+def _river_last_match(phrase: str, templates: list[re.Pattern]) -> str | None:
+    best: tuple[int, str] | None = None
+    for template in templates:
+        for m in template.finditer(phrase):
+            name = m.group(1)
+            if name.lower() in _RIVER_NAME_STOPWORDS:
+                continue
+            if best is None or m.start() > best[0]:
+                best = (m.start(), name)
+    return best[1] if best else None
+
+
+def _river_dual_names(phrase: str) -> tuple[str, str] | None:
+    for template in _RIVER_DUAL_TEMPLATES:
+        m = template.search(phrase)
+        if m and m.group(1).lower() not in _RIVER_NAME_STOPWORDS and m.group(2).lower() not in _RIVER_NAME_STOPWORDS:
+            return m.group(1), m.group(2)
+    return None
+
+
+def _looks_like_river_continuation(phrase: str) -> bool:
+    stripped = phrase.strip()
+    if not stripped:
+        return False
+    if stripped[0].isupper() and not _RIVER_CONTINUATION_VOCAB_RE.search(stripped):
+        return False
+    return True
+
+
+def _normalize_river_name(name: str) -> str:
+    return _RIVER_NAME_ALIASES.get(name.lower(), name.lower())
+
+
+def _reorder_river_trail(entries: list[tuple[Point, str, bool]]) -> list[Point]:
+    """A mouth citation is walked wherever document order puts it, which
+    is routinely *before* the rest of its river's own course -- confirmed
+    the ordinary case, since a book.map's coastal walk (where a mouth is
+    cited) almost always comes before its later RIVER section (where the
+    source/bends are). Left as document order, that produces a trail that
+    visits the mouth first and then jumps back upstream, self-intersecting
+    the drawn line (confirmed §7.1's Namados).
+    A *whole run* of consecutive mouth citations (a multi-outlet delta,
+    e.g. §2.9.1's Rhine: western/middle/eastern mouth cited back to back)
+    is treated as one unit -- it stays exactly where it was walked only if
+    the entry right after the run continues from the *same section* as
+    the run's own last citation, i.e. it's genuinely telling the river's
+    course in mouth-to-head direction (confirmed §3.1.24's Padus,
+    §5.1.6's Sangarios: the mouth opens their own RIVER section and the
+    rest of that section's citations follow it directly). Every other
+    mouth run is moved to the trail's end instead (in its own internal
+    order), since "the mouth" is definitionally the river's downstream
+    terminus."""
+    ordered: list[Point] = []
+    trailing_mouths: list[Point] = []
+    i, n = 0, len(entries)
+    while i < n:
+        point, section_key, is_mouth = entries[i]
+        if not is_mouth:
+            ordered.append(point)
+            i += 1
+            continue
+        run_end = i
+        while run_end < n and entries[run_end][2]:
+            run_end += 1
+        run = entries[i:run_end]
+        continues_in_place = run_end < n and entries[run_end][1] == run[-1][1]
+        target = ordered if continues_in_place else trailing_mouths
+        target.extend(p for p, _, _ in run)
+        i = run_end
+    return ordered + trailing_mouths
+
+
+def _walk_river_sections(sections_with_flags: list[tuple[Section, bool]],
+                          occurrence_index: dict[tuple[str, int], Point]) -> tuple[dict[str, list[Point]], dict[str, str]]:
+    """Group every citation across this book.map's sections by the named
+    river it belongs to (see the big comment above). ``sections_with_flags``
+    pairs each section with whether it is itself RIVER-classified --
+    outside a RIVER section, only a "mouth of..."/"fork of..." citation
+    may open a name this walk hasn't seen yet. Returns each group already
+    reordered (see _reorder_river_trail) so its mouth sits at whichever
+    end the text actually places it."""
+    raw_groups: dict[str, list[tuple[Point, str, bool]]] = {}
+    seen_ids: dict[str, set[str]] = {}
+    display_names: dict[str, str] = {}
+
+    def key_for(name: str) -> str:
+        key = _normalize_river_name(name)
+        if key not in raw_groups:
+            raw_groups[key] = []
+            seen_ids[key] = set()
+            display_names[key] = name
+        return key
+
+    def register(key: str, point: Point, phrase: str, section_key: str) -> None:
+        # A river's mouth or turn is occasionally restated verbatim as the
+        # orientation landmark opening an unrelated later citation (the
+        # same idiom build_coastlines already guards against) -- without
+        # this, the point re-enters its own group a second time instead
+        # of being recognized as the same, already-visited citation.
+        if point.id in seen_ids[key]:
+            return
+        is_mouth = bool(_RIVER_MOUTH_WORD_RE.search(phrase))
+        raw_groups[key].append((point, section_key, is_mouth))
+        seen_ids[key].add(point.id)
+
+    for section, is_river_section in sections_with_flags:
+        current: str | None = None
+        for citation in section.citations:
+            point = occurrence_index[(section.key, citation.char_offset)]
+            phrase = citation.name_phrase
+
+            dual = _river_dual_names(phrase)
+            if dual:
+                key_a, key_b = key_for(dual[0]), key_for(dual[1])
+                register(key_a, point, phrase, section.key)
+                if key_b != key_a:
+                    register(key_b, point, phrase, section.key)
+                current = key_b
+                continue
+
+            name = _river_last_match(phrase, _RIVER_NAME_TEMPLATES)
+            if name:
+                is_new = _normalize_river_name(name) not in raw_groups
+                if is_new and not is_river_section and current is None and not _RIVER_OPENING_WORD_RE.search(phrase):
+                    # Outside a RIVER section, a bare "NAME river" mention
+                    # is too common and ambiguous to trust as an opening
+                    # (confirmed: it's this text's routine way of citing a
+                    # boundary line, "bounded... by the Euphrates river at
+                    # COORD") -- only a citation that says this is the
+                    # river's *mouth* or *fork* may start tracking a
+                    # brand-new name here.
+                    continue
+                key = key_for(name)
+                if current is not None and current != key and _RIVER_JOIN_TRIGGER_RE.search(phrase):
+                    register(current, point, phrase, section.key)
+                register(key, point, phrase, section.key)
+                current = key
+                continue
+
+            target = _river_last_match(phrase, _RIVER_JOIN_TEMPLATES)
+            if target:
+                is_new = _normalize_river_name(target) not in raw_groups
+                if is_new and not is_river_section and current is None:
+                    continue
+                key = key_for(target)
+                if current is not None and current != key:
+                    register(current, point, phrase, section.key)
+                register(key, point, phrase, section.key)
+                current = key
+                continue
+
+            if current is not None and _looks_like_river_continuation(phrase):
+                register(current, point, phrase, section.key)
+
+    groups = {key: _reorder_river_trail(entries) for key, entries in raw_groups.items()}
+    return groups, display_names
+
+
+def build_rivers(sections: list[Section], resolved: dict[str, str],
+                  occurrence_index: dict[tuple[str, int], Point]) -> list[Line]:
+    # Walked for RIVER, COASTAL, and BOUNDARY sections -- confirmed real
+    # river-course pairs show up not just in COASTAL sections (§2.11.1,
+    # §7.3.2, §3.1.5) but in a BOUNDARY one too (§3.8.1, Dacia's boundary
+    # tracing several rivers' own fork points). The is_river_section flag
+    # passed into _walk_river_sections is what keeps this safe: outside a
+    # RIVER section, a name can only be *opened* by its own mouth/fork
+    # idiom, never a bare mention. INLAND and ISLAND sections are
+    # deliberately excluded even with that guard: their own bank-city or
+    # island-extremity lists routinely carry a lowercase-leading, name-free
+    # continuation phrase right after an unrelated river mouth mention (a
+    # region's boundary/inland list opens by restating the coastal walk's
+    # last river, then moves on to ordinary cities) and the continuation
+    # heuristic below can't always tell that apart from the same river's
+    # own next course point (confirmed regression: Iuliobona/Ratomagus/...
+    # swept into the Sequana's own trail via §2.8's inland city list;
+    # Vistula's island-extremities swept in via §2.11.16).
+    sections_by_book_map: dict[str, list[tuple[Section, bool]]] = {}
+    for section in sections:
+        section_type = resolved[section.key]
+        if section_type not in (RIVER, COASTAL, BOUNDARY):
+            continue
+        sections_by_book_map.setdefault(section.book_map, []).append((section, section_type == RIVER))
+
+    lines: list[Line] = []
+    for book_map, secs in sections_by_book_map.items():
+        groups, display_names = _walk_river_sections(secs, occurrence_index)
+        for key, trail in groups.items():
+            if len(trail) < 2:
+                continue
+            lines.append(Line(
+                id=f"river-{book_map}-{display_names[key]}",
+                kind="river",
+                book_map=book_map,
+                feature_name=display_names[key],
+                point_ids=[p.id for p in trail],
+            ))
+    return lines
+
+
+# ---------------------------------------------------------------------
 # Island walks: a single named island's own coastal walk, cited as a
 # self-contained appendix inside a shared/mainland book.map (Lesbos in
 # 5.2, Euboia in 3.14, Karpathos+Rhodes in 5.2) rather than as its own
@@ -396,24 +775,7 @@ def build_all_lines(sections: list[Section], points: list[Point], resolved: dict
     streams = build_citation_streams(sections, occurrence_index)
     lines = []
     lines += build_coastlines(streams, resolved)
-    # Rivers deliberately not built yet -- the previous name-matching
-    # approach (grouping any two same-named river citations across a
-    # whole book.map, then a whole session's worth of forward-fill/bank-
-    # city/delta-branch patches on top of it) didn't follow how Ptolemy's
-    # own text actually organizes a river's course, and is being replaced
-    # with a per-river, section-scoped "sources to mouth" reconstruction
-    # instead: start from the section(s) that specifically describe one
-    # named river's own course (its sources, bends, confluences), walk
-    # only the points cited *within* those sections, then separately
-    # locate that river's mouth -- which typically isn't in the river's
-    # own section at all, but in an unrelated coastal section elsewhere in
-    # the same book.map. One lesson worth keeping from the old approach:
-    # a plain distance cap can't tell "one real river's citations are
-    # just spread out" apart from "two different rivers coincidentally
-    # share a name" (confirmed on Britain's own text -- two different
-    # rivers both named "Alaunus", 6.9 degrees apart) -- whatever
-    # heuristic walks a river's course needs its own way of guarding
-    # against that, not just a cap.
+    lines += build_rivers(sections, resolved, occurrence_index)
     lines += build_mountains(points)
     lines += build_islands(points, resolved)
     lines += build_island_walks(sections, resolved, occurrence_index)

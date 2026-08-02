@@ -195,6 +195,159 @@ def test_mid_book_map_region_declaration_splits_the_coastal_walk():
         next(p.id for p in points if p.name == "Pegai")) == 1
 
 
+def test_river_source_to_mouth_matches_users_india_worked_example():
+    # The exact case the "sources to mouth" methodology was designed for
+    # (confirmed §7.1.10/§7.1.34, the Solen -- one of the user's own two
+    # worked examples): a RIVER section gives the source and a bend, and
+    # the river's mouth is a same-named citation elsewhere in the same
+    # book.map's coastal walk, cited earlier in the text. The trail is
+    # built source-first even though the mouth is walked first in
+    # document order (see _reorder_river_trail).
+    text = (
+        "§ 7.1.10  A description of the coast\n"
+        "Mouth of the river Solen 100°00' . 15°00'\n\n\n"
+        "§ 7.1.34  Sources of the River Solen in the Bettigo range 130°00' . 15°20'\n"
+        "The point where it turns 131°00' . 16°00'\n"
+    )
+    points, lines = _build(text)
+    rivers = [l for l in lines if l.kind == "river"]
+    assert len(rivers) == 1
+    assert rivers[0].feature_name == "Solen"
+    names = [next(p.name for p in points if p.id == pid) for pid in rivers[0].point_ids]
+    assert names == [
+        "Sources of the River Solen in the Bettigo range",
+        "point where it turns",
+        "Mouth of the river Solen",
+    ]
+
+
+def test_river_branching_network_matches_users_india_worked_example():
+    # The user's own second worked example: Namados/Baris bending and
+    # confluencing with Moghis, which then bifurcates into Goaris and
+    # Binda, each ending at its own separately catalogued mouth --
+    # including the hand-confirmed spelling variants between a RIVER
+    # section's own wording and its coastal mouth citation (Moghis/
+    # Mophis, Goaris/Binda's "Benda").
+    text = (
+        "§ 7.1.4  A description of the coast\n"
+        "Mouth of the River Mophis 97°00' . 18°00'\n"
+        "Mouth of the River Namados 96°00' . 17°30'\n"
+        "Mouth of the river Goaris 95°00' . 17°00'\n"
+        "Mouth of the River Benda 94°30' . 16°30'\n\n\n"
+        "§ 7.1.31  And of the other rivers the positions are thus:\n"
+        "The sources of the River Namados in the Ouindion range 109°00' . 26°00'\n"
+        "The bend of the river at Seripala 100°00' . 22°00'\n"
+        "Its confluence with the River Moghis 98°00' . 19°00'\n\n\n"
+        "§ 7.1.32  Sources of the River Nanagouna from the Ouindion range 108°00' . 25°00'\n"
+        "Where it bifurcates into the Goaris and Binda 99°00' . 20°00'\n"
+    )
+    points, lines = _build(text)
+    rivers = {l.feature_name: l for l in lines if l.kind == "river"}
+    assert set(rivers) == {"Namados", "Mophis", "Goaris", "Benda"}
+
+    def names_of(feature_name):
+        return [next(p.name for p in points if p.id == pid) for pid in rivers[feature_name].point_ids]
+
+    assert names_of("Namados") == [
+        "sources of the River Namados in the Ouindion range",
+        "bend of the river at Seripala",
+        "Its confluence with the River Moghis",
+        "Mouth of the River Namados",
+    ]
+    # The bifurcation point is a shared graph node between both branches.
+    bifurcation = "Where it bifurcates into the Goaris and Binda"
+    assert names_of("Goaris") == [bifurcation, "Mouth of the river Goaris"]
+    assert names_of("Benda") == [bifurcation, "Mouth of the River Benda"]
+    # Moghis/Mophis: a spelling variant between the RIVER section's own
+    # wording and the coastal mouth's, resolved via the alias table.
+    assert names_of("Mophis") == ["Its confluence with the River Moghis", "Mouth of the River Mophis"]
+
+
+def test_coastal_mouth_immediately_followed_by_its_own_source_is_connected():
+    # Confirmed real and common (32 cases corpus-wide, found by the user):
+    # an ordinary coastal walk gives a river's mouth and then, a citation
+    # or two later, that same river's own bare "sources of the river" --
+    # with no RIVER section involved at all (§7.3.2, §2.11.1). The
+    # in-between town must not be swept into either river's trail.
+    text = (
+        "§ 7.3.2  A description of the coast\n"
+        "After the boundary of the Gulf on the side of India the mouth of the river Aspithra 150°00' . 10°00'\n"
+        "Sources of the river on the eastern side of the Semanthinos range 151°00' . 11°00'\n"
+        "Bramma, a town 152°00' . 12°00'\n"
+        "The mouth of the river Ambastes 153°00' . 13°00'\n"
+        "The sources of the river 154°00' . 14°00'\n"
+        "Rhabana, a town 155°00' . 15°00'\n"
+    )
+    points, lines = _build(text)
+    rivers = {l.feature_name: l for l in lines if l.kind == "river"}
+    assert set(rivers) == {"Aspithra", "Ambastes"}
+    for feature_name in ("Aspithra", "Ambastes"):
+        assert len(rivers[feature_name].point_ids) == 2
+    town_ids = {p.id for p in points if p.name in ("Bramma, a town", "Rhabana, a town")}
+    for line in rivers.values():
+        assert not town_ids & set(line.point_ids)
+
+
+def test_multiple_rivers_mouth_source_pairs_in_one_coastal_list():
+    # Confirmed §2.11.1: several rivers, each cited "Mouths of the river
+    # X" immediately followed by its own bare "Sources of the river" --
+    # each pair must resolve to its own river, never bleed into its
+    # neighbour's.
+    text = (
+        "§ 2.11.1  A description of the coast\n"
+        "Mouths of the river Amisius 29°00' . 55°00'\n"
+        "Sources of the river 30°00' . 56°00'\n"
+        "Mouths of the river Visurgius 31°00' . 55°30'\n"
+        "Sources of the river 32°00' . 56°30'\n"
+    )
+    points, lines = _build(text)
+    rivers = {l.feature_name: l for l in lines if l.kind == "river"}
+    assert set(rivers) == {"Amisius", "Visurgius"}
+    for feature_name in ("Amisius", "Visurgius"):
+        assert len(rivers[feature_name].point_ids) == 2
+
+
+def test_river_turn_with_no_source_citation_still_connects_to_its_mouth():
+    # Confirmed §3.1.5, the Tiber: a coastal walk's river mouth is
+    # followed only by a generic "where the river turns..." with no
+    # "sources of" citation at all before reverting to ordinary coastal
+    # cities -- the pair still connects, and Ostia must not be swept in.
+    text = (
+        "§ 3.1.5  A description of the coast\n"
+        "mouth of the Tiber river 36°30' . 41°40'\n"
+        "where the river turns toward the west 36°00' . 42°00'\n"
+        "Ostia 36°30' . 41°35'\n"
+    )
+    points, lines = _build(text)
+    rivers = [l for l in lines if l.kind == "river"]
+    assert len(rivers) == 1
+    assert rivers[0].feature_name == "Tiber"
+    assert len(rivers[0].point_ids) == 2
+    ostia_id = next(p.id for p in points if p.name == "Ostia")
+    assert ostia_id not in rivers[0].point_ids
+
+
+def test_boundary_section_tracing_a_rivers_fork_points_is_connected():
+    # Confirmed §3.8.1: Dacia's own boundary declaration is classified
+    # BOUNDARY (not RIVER or COASTAL), but the citations after its lead
+    # trace a river by its own fork/bend points -- "fork of X river" is
+    # as unambiguous an opening idiom as "mouth of X river", so this
+    # still connects even though the section itself isn't about a river.
+    text = (
+        "§ 3.8.1  Dacia\n"
+        "Dacia is bounded on the north by the part of Sarmatia in Europe from Mt. "
+        "Karpatos to the limit of the return of the Tyras river already mentioned, "
+        "which, as mentioned, is at 46°00' . 48°30'\n"
+        "The fork of the Rhabon river, which flows to Dacia 45°00' . 47°15'\n"
+        "The bend at Oiskos 44°30' . 47°00'\n"
+    )
+    points, lines = _build(text)
+    rivers = [l for l in lines if l.kind == "river"]
+    assert len(rivers) == 1
+    assert rivers[0].feature_name == "Rhabon"
+    assert len(rivers[0].point_ids) == 2
+
+
 def test_mountain_grouping_handles_mt_abbreviation():
     text = (
         "§ 3.14.35  Mountains in the Peloponnese\n"

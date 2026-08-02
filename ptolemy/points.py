@@ -151,6 +151,19 @@ _PROPER_NOUN_STOPWORDS = {
     "the", "a", "an", "and", "of", "in", "on", "at", "to", "from", "which",
     "is", "below", "above", "after", "between", "near", "next", "this",
     "toward", "towards", "then", "again", "first", "second", "third",
+    # Recurring river-catalogue vocabulary, not a place's own name -- two
+    # entirely unrelated rivers' source citations ("Sources of the River
+    # Namados in the Ouindion range" / "Sources of the River Baris in the
+    # Bettigo range") both start with these same capitalized words, which
+    # otherwise satisfied this function's "shares a proper noun" check on
+    # their own and wrongly deduped two different rivers' sources into one
+    # point whenever Ptolemy's own coordinates happened to sit close
+    # together (confirmed §7.1.31/§7.1.34, ~0.2 degrees apart) -- the same
+    # class of bug the Lekton/Methymna case above already guards against,
+    # just from a shared *word* instead of a shared coordinate alone.
+    "sources", "source", "springs", "spring", "river", "rivers", "mouth",
+    "mouths", "confluence", "junction", "bend", "bends", "turn", "turns",
+    "fork", "forks",
 }
 
 
