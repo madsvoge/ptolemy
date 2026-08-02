@@ -152,6 +152,25 @@ def test_river_begins_from_mountain_is_tagged_river_too():
     assert "mountain" in p.tags
 
 
+def test_from_which_the_named_river_flows_word_order_is_tagged_river_too():
+    # Confirmed throughout book 4.6's own Libyan river catalogue: "Mt.
+    # Thammes, from which the Rubricatus river flows" -- the river's own
+    # name sits *between* "which" and "flows" (Subos, Stacheir,
+    # Massitholus, Darados, Bagradas all use this exact word order), not
+    # right after "which" the way "from which flow the Salathus river"
+    # does above. river_base_name already resolves "Bagradas" for this
+    # citation via the plain "NAME river" template -- it just never had
+    # the tag to enter build_rivers at all.
+    text = (
+        "§ 4.6.5  so-called Usargala or Susargala mountain, from which "
+        "the Bagradas river flows, midpoint 12°00' . 28°00'\n"
+    )
+    points = _tagged_points(text)
+    p = next(iter(points.values()))
+    assert "river" in p.tags
+    assert "mountain" in p.tags
+
+
 def test_river_links_two_mountains_is_tagged_river():
     # Confirmed §4.6.14: "the Nigeir river itself links Mandron mountain
     # and Thala mountain" -- "links" alone has an unrelated administrative

@@ -36,6 +36,23 @@ COASTLINE_CAP_DEG = 5.0
 # things that just happen to share a name"); a big single-region river
 # like the Nile simply won't auto-connect end to end.
 RIVER_CAP_DEG = 5.0
+# A river citation that carries no name of its own and is only connected
+# via _river_forward_fill's own inherited-name mechanism ("Before the
+# river turns towards the east", "The sources of the river", confirmed
+# §2.4.2's Ana) is structurally much less likely to be a false "same name,
+# different river" collision than an ordinary explicit-name match: it was
+# never an independent claim to the name at all, just a same-book_map
+# anaphoric continuation of whatever citation immediately established it.
+# Confirmed by direct comparison against the real corpus: every near-miss
+# gap where the *arriving* point owns no explicit name of its own tops
+# out at 7.4 degrees (genuine continuations -- Ana, Oxos, Rha, Bidaspes,
+# Koa...); every gap beyond that (9+ degrees, several 20-100+) is
+# forward-fill's own name having gone stale over many unrelated
+# intervening tribal/city sections in the same book_map, not a real
+# continuation -- confirmed on "Iaxartes" (P5455->P5456, 111 degrees) and
+# "Kiabros" (three separate 40-degree jumps). 8.0 sits in the clean gap
+# between those two clusters.
+RIVER_FORWARD_FILL_WIDE_CAP_DEG = 8.0
 MOUNTAIN_CAP_DEG = 5.0
 # A trail's two ends close into a loop only if they're both near in
 # absolute terms AND close relative to the trail's own total length --
@@ -87,7 +104,12 @@ def build_citation_streams(sections: list[Section], occurrence_index: dict[tuple
     return streams
 
 
-def _split_into_runs(ordered_points: list[Point], cap: float, keep_singletons: bool = False) -> list[list[Point]]:
+def _split_into_runs(
+    ordered_points: list[Point],
+    cap: float,
+    keep_singletons: bool = False,
+    wide_cap_points: dict[str, float] | None = None,
+) -> list[list[Point]]:
     """Split a same-book.map, filtered point sequence into runs (trails)
     wherever consecutive points repeat (a dedup echo) or exceed the cap.
     A leftover single point is dropped by default (a Line needs 2+ points)
@@ -96,22 +118,50 @@ def _split_into_runs(ordered_points: list[Point], cap: float, keep_singletons: b
     book_map (e.g. the Ganges' own separately-cited mouth, alone in 7.4)
     still needs to survive this step as a 1-point run so the stitch phase
     can pair it up; _build_named_feature_lines drops anything still a
-    singleton once stitching is done."""
+    singleton once stitching is done.
+
+    wide_cap_points (river-only) maps a point's own id to a wider cap to
+    use *just for the step arriving at that point* -- see build_rivers'
+    own forward_fill_wide_cap for why this is safe where a blanket wider
+    default cap isn't (confirmed on the Alaunus/Britain false-merge:
+    widening the shared cap even slightly still catches it)."""
+    wide_cap_points = wide_cap_points or {}
     runs: list[list[Point]] = []
     current: list[Point] = []
+    # True once *any* step in the current trail relied on a wider
+    # forward-fill cap rather than the plain shared default -- once that's
+    # happened, every later step in this same trail is crossing-checked
+    # too, not just the wide-cap step itself. Confirmed necessary on the
+    # Rhodanus (book.map 2.10): forward-filling its own source ("the
+    # source of the river", 5.4 degrees from "the turn of the river
+    # toward the Alps") is correct on its own and doesn't cross anything
+    # *yet* -- the self-crossing only appears once two *tributary*
+    # confluence citations get appended next, each individually well
+    # within the plain default cap of the point before it, but sitting
+    # back near the river's mouth rather than its source. A crossing
+    # check only at the wide-cap step itself can't see that -- the later,
+    # ordinary-looking default-cap steps are what actually complete it.
+    trusted_wide_cap = False
     for p in ordered_points:
         if not current:
             current = [p]
+            trusted_wide_cap = False
             continue
         prev = current[-1]
         if p.id == prev.id:
             continue
-        if _dist(prev, p) <= cap:
+        d = _dist(prev, p)
+        wide_cap = wide_cap_points.get(p.id, cap)
+        used_wide_cap_here = d > cap
+        needs_crossing_check = trusted_wide_cap or used_wide_cap_here
+        if d <= wide_cap and (not needs_crossing_check or not _trail_self_intersects(current + [p])):
             current.append(p)
+            trusted_wide_cap = trusted_wide_cap or used_wide_cap_here
         else:
             if len(current) >= 2 or keep_singletons:
                 runs.append(current)
             current = [p]
+            trusted_wide_cap = False
     if len(current) >= 2 or keep_singletons:
         runs.append(current)
     return runs
@@ -428,6 +478,7 @@ def _build_named_feature_lines(
     names_fn,
     cap: float,
     cross_book_map_caps: dict[str, float] | None = None,
+    wide_cap_points: dict[str, float] | None = None,
 ) -> list[Line]:
     """names_fn returns every group a point belongs to (almost always
     zero or one; a river confluence point belongs to two at once -- see
@@ -497,7 +548,11 @@ def _build_named_feature_lines(
         # doesn't have, because it isn't limited to trying only the two
         # runs' raw document-order ends.
         runs_by_name.setdefault(name_key, []).extend(
-            _split_into_runs(group_points, cap, keep_singletons=name_key in cross_book_map_caps)
+            _split_into_runs(
+                group_points, cap,
+                keep_singletons=name_key in cross_book_map_caps,
+                wide_cap_points=wide_cap_points,
+            )
         )
 
     lines: list[Line] = []
@@ -682,7 +737,12 @@ def build_rivers(
     ]
     if long_course_caps is None:
         long_course_caps = _load_river_long_course_caps()
-    return _build_named_feature_lines(river_points, "river", names_fn, cap, long_course_caps)
+    # A point that inherited its name purely via forward-fill (no explicit
+    # claim of its own) gets a modestly wider cap for the step arriving at
+    # it -- see RIVER_FORWARD_FILL_WIDE_CAP_DEG's own comment for why this
+    # is safe where a blanket wider default cap isn't.
+    wide_cap_points = {pid: RIVER_FORWARD_FILL_WIDE_CAP_DEG for pid in forward_fill}
+    return _build_named_feature_lines(river_points, "river", names_fn, cap, long_course_caps, wide_cap_points)
 
 
 def build_mountains(points: list[Point], cap: float = MOUNTAIN_CAP_DEG) -> list[Line]:

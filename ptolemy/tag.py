@@ -88,6 +88,13 @@ _RIVER_RE = re.compile(
     # meet the river Euphrates" (§5.6), and the bare "The Axios river from
     # Mt. Skardos at <coord>" (§3.12.15) with no verb at all.
     r"|\bbegins?\s+(?:from|in|at)\b|\bfrom\s+which\s+(?:it\s+)?flows?\b"
+    # The mountain-source idiom's *other* word order: the river's own name
+    # sits between "which" and "flows" instead of right after "which"
+    # ("Mt. Thammes, from which the Rubricatus river flows", confirmed
+    # book 4.6's own Libyan catalogue again -- Subos, Stacheir,
+    # Massitholus, Darados, Bagradas all use this order, not "from which
+    # flow the X river" like Salathus/Massa above).
+    r"|\bfrom\s+which\s+(?:the\s+)?\w+\s+(?:river\s+)?flows?\b"
     r"|\bflows?\s+(?:from|to\s+meet)\b|\briver\s+from\s+(?:mt\.?|mounta?in\w*)\b"
     # "links" alone has an unrelated administrative sense elsewhere in this
     # text ("The northern side links to Tarraconensis..."), same reasoning

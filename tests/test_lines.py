@@ -1,9 +1,9 @@
 from ptolemy.parser import parse_sections
-from ptolemy.points import dedup_points, build_occurrence_index
+from ptolemy.points import Point, dedup_points, build_occurrence_index
 from ptolemy.classify import classify_sections
 from ptolemy.tag import tag_points
 from ptolemy.coords import convert_points
-from ptolemy.lines import build_all_lines
+from ptolemy.lines import build_all_lines, _split_into_runs
 
 IRELAND_NORTH_WEST = """§ 2.2.1  Setting of Hivernia
 North coast:
@@ -687,6 +687,54 @@ def test_island_list_section_is_not_blanket_connected():
     points, lines = _build(text)
     walks = [l for l in lines if l.kind == "island" and l.id.startswith("island-walk-")]
     assert walks == []
+
+
+def _river_point(pid, lon, lat, book_map="2.10"):
+    # _split_into_runs only ever looks at .id, .lon_modern, .lat_modern --
+    # already-ordered points are handed to it directly, so no real
+    # Occurrence/char_offset is needed here.
+    p = Point(id=pid, lon_ferro=0.0, lat_ferro=0.0, book_map=book_map)
+    p.lon_modern = lon
+    p.lat_modern = lat
+    p.tags = {"river"}
+    return p
+
+
+def test_wide_cap_step_that_would_self_cross_is_rejected():
+    # Confirmed on the real Rhodanus (book.map 2.10): forward-filling its
+    # own source ("the source of the river", 5.4 degrees from "the turn
+    # of the river toward the Alps") is a correct extension on its own,
+    # and the tributary confluence cited right after it in document order
+    # (D -> E, well within the *plain* default cap) doesn't cross anything
+    # yet either -- but a *second* confluence right after that (E -> F,
+    # also an ordinary-looking default-cap step) sits back near the
+    # river's mouth rather than its source, and completes a real
+    # self-crossing against the earlier B->C and C->D legs. Reproduced
+    # here with the same relative shape (translated to round numbers):
+    # B->C normal, C->D only clears the *wide* cap, D->E and E->F are
+    # both individually ordinary default-cap steps.
+    b = _river_point("B", 0.0, 0.0)
+    c = _river_point("C", 0.0, 2.42)
+    d = _river_point("D", 5.34, 1.5)
+    e = _river_point("E", 1.0, 2.67)
+    f = _river_point("F", -0.33, 1.67)
+    runs = _split_into_runs([b, c, d, e, f], cap=5.0, wide_cap_points={"D": 8.0})
+    assert len(runs) == 1
+    assert [p.id for p in runs[0]] == ["B", "C", "D", "E"]
+
+
+def test_wide_cap_step_with_no_crossing_risk_still_connects():
+    # The same wide-cap mechanism must still connect a genuine case with
+    # no crossing risk at all (confirmed on the real Ana, §2.4.2: "Before
+    # the river turns...", "Where the river touches...", "The sources of
+    # the river" -- a plain, non-crossing chain 5.1 degrees apart at its
+    # widest gap).
+    a = _river_point("A", 0.0, 0.0)
+    b = _river_point("B", 0.5, 1.0)
+    c = _river_point("C", 5.5, 1.5)
+    runs = _split_into_runs([a, b, c], cap=5.0, wide_cap_points={"C": 8.0})
+    assert len(runs) == 1
+    assert [p.id for p in runs[0]] == ["A", "B", "C"]
 
 
 def test_no_line_self_intersects_on_this_small_fixture():
