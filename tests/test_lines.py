@@ -209,6 +209,83 @@ def test_river_grouping_connects_mouth_and_source_by_shared_name():
     assert len(rivers[0].point_ids) == 2
 
 
+def test_sentence_initial_capitalized_mouth_and_sources_are_still_named():
+    # Confirmed throughout book 7 (India): a citation that opens its own
+    # section is routinely sentence-initial and capitalized ("Mouth of
+    # the River Lykos", "Sources of the River Zaradros") where the same
+    # idiom elsewhere in the corpus uses lowercase ("mouth of the river
+    # Rhymmos"). The river/mountain templates used to be case-sensitive
+    # for the keywords themselves (not just the captured name), so every
+    # sentence-initial citation like this was silently left unnamed and
+    # dropped from every river line -- confirmed a real, wide gap
+    # (433 -> 518 of 699 river-tagged points corpus-wide gained a name).
+    text = (
+        "§ 7.1.27  Sources of the River Zaradros 120°00' . 35°00'\n\n\n"
+        "§ 7.1.31  Mouth of the River Zaradros 122°00' . 32°00'\n"
+    )
+    points, lines = _build(text)
+    rivers = [l for l in lines if l.kind == "river"]
+    assert len(rivers) == 1
+    assert rivers[0].feature_name == "Zaradros"
+    assert len(rivers[0].point_ids) == 2
+
+
+def test_confluence_citation_links_tributary_into_the_main_river():
+    # Confirmed §7.1.26-30 (Indus/Ganges tributary catalogue): "Confluence
+    # of the Koa and Indus" is simultaneously the Koa's own endpoint and a
+    # real waypoint on the Indus's course. Without linking it into *both*
+    # groups, the tributary's own line stopped just short of the river it
+    # joins -- an unconnected loose end sitting right next to it, instead
+    # of visibly meeting it.
+    text = (
+        "§ 7.1.26  The rivers which flow from Mount Imaos into the Indus:\n"
+        "Sources of the River Koa 120°00' . 35°00'\n"
+        "Confluence of the Koa and Indus 123°00' . 32°00'\n"
+        "Mouth of the Indus 125°00' . 29°00'\n"
+    )
+    points, lines = _build(text)
+    rivers = {l.feature_name: l for l in lines if l.kind == "river"}
+    assert set(rivers) == {"Koa", "Indus"}
+    confluence = next(p for p in points if p.name.startswith("Confluence"))
+    assert confluence.id in rivers["Koa"].point_ids
+    assert confluence.id in rivers["Indus"].point_ids
+
+
+def test_cities_along_the_river_lead_folds_bare_city_names_into_the_river():
+    # Confirmed §3.10.5: "The following cities are along the Danube
+    # river:" followed by bare city names carrying no river vocabulary of
+    # their own ("Rhegianon", not "Rhegianon on the Danube") -- point-level
+    # river detection can never catch these; only the section's own lead
+    # names the river they belong to.
+    text = (
+        "§ 3.10.5  The following cities are along the Danube river:\n"
+        "Rhegianon 50°00' . 45°00'\n"
+        "Dorticum 51°00' . 45°10'\n"
+    )
+    points, lines = _build(text)
+    rivers = [l for l in lines if l.kind == "river" and l.feature_name == "Danube"]
+    assert len(rivers) == 1
+    assert len(rivers[0].point_ids) == 2
+
+
+def test_tribal_aside_naming_a_river_in_passing_does_not_fold_its_cities_in():
+    # Confirmed §2.9.10: "...are the Helveti along the River Rhine, with
+    # cities Ganodurum..." has "cities" and "along the river" both
+    # present, but "cities" is a later, unrelated aside naming the
+    # tribe's own towns, not a "cities are along the river" list header --
+    # "are" governs "the Helveti", not "cities". Connecting these
+    # non-geographically-ordered tribal-list points as if they were a
+    # real river-walk produced a genuine self-crossing (confirmed).
+    text = (
+        "§ 2.9.10  And after the mountain, are the Helveti along the "
+        "River Rhine, with cities Ganodurum 28°30' . 46°30'\n"
+        "Forum Tiberii 28°00' . 46°00'\n"
+    )
+    points, lines = _build(text)
+    rivers = [l for l in lines if l.kind == "river" and l.feature_name == "Rhine"]
+    assert rivers == []
+
+
 def test_boundary_prose_mentioning_a_different_river_does_not_merge_groups():
     # A boundary sentence naming a *different* river in passing ("the
     # source of the river Danube") must land in its own Danube group, not

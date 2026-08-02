@@ -447,3 +447,55 @@ _NEW_COASTAL_ARC_PHRASE_RE = re.compile(r"\buntil\s+the\s+border\s+with\b|\bthe\
 
 def starts_new_coastal_arc(name_phrase: str) -> bool:
     return bool(_NEW_COASTAL_ARC_PHRASE_RE.search(name_phrase))
+
+
+# A section can introduce a plain list of cities/towns that carries no
+# river vocabulary of its own in any individual citation, but whose own
+# lead explicitly says they sit along a named river -- "The following
+# cities are along the Danube river:" (confirmed §3.10.5), "The towns in
+# Vindelicia along the Danube are:" (§2.12.4), "the inland cities on that
+# side are, along the Hierasos river," (§3.10.8). Point-level river
+# detection (lines.river_base_names) can never catch these: a bare city
+# name like "Bragodurum" mentions no river at all. lines.py uses this to
+# fold such a section's points into that river's own line as real
+# waypoints anyway -- the same reasoning tag.py's harbor/river_mouth
+# already use for a coastal walk (a point sitting *on* a linear feature
+# is part of that feature, whatever its own citation happens to say).
+# Deliberately keeps "along" itself scoped to this exact list-intro
+# shape, not stripped as generic noise -- "bounded... along the river
+# Liger until it turns southwards" (a boundary line's own endpoint, not a
+# city list) uses the same word for a different, unrelated purpose.
+_RIVER_BANK_CITY_ALONG_RE = re.compile(r"\balong\s+(?:the\s+)?(?:river\s+)?((?-i:[A-Z])\w*)", re.I)
+_RIVER_BANK_CITY_NOUN_RE = re.compile(r"\b(?:cities|towns)\b", re.I)
+_ARE_RE = re.compile(r"\bare\b", re.I)
+# "The inland towns and villages of this division, in addition to those
+# mentioned along the Ganges are called:—" (confirmed §7.2.22) -- reads
+# like a match (towns...along the Ganges...are), but "in addition to"
+# says the opposite: *these* towns are explicitly the ones *not* already
+# covered by the along-the-river list mentioned earlier; "along the
+# Ganges" describes that earlier, different group, not this one.
+_RIVER_BANK_CITY_EXCLUDE_RE = re.compile(r"\bin\s+addition\s+to\b", re.I)
+
+
+def river_bank_city_lead_name(section: Section) -> str | None:
+    lead = section.lead_text
+    if _RIVER_BANK_CITY_EXCLUDE_RE.search(lead):
+        return None
+    along_match = _RIVER_BANK_CITY_ALONG_RE.search(lead)
+    if not along_match:
+        return None
+    # "cities"/"towns" must be the sentence's own subject governing "are"
+    # -- i.e. appear *before* it -- not just present somewhere nearby.
+    # Confirmed §2.9.10: "are the Helveti along the River Rhine, with
+    # cities Ganodurum" has both words, but in the wrong order/role ("are"
+    # governs the tribe; "cities" is a later, unrelated aside naming that
+    # tribe's own towns, which this text does not claim sit in any
+    # particular order along the river). Connecting that section's points
+    # as if they were a real river-walk produced a genuine self-crossing
+    # (confirmed) -- every real "cities ... are ... along the river" list
+    # header, by contrast, always has the noun before the copula.
+    noun_match = _RIVER_BANK_CITY_NOUN_RE.search(lead)
+    are_match = _ARE_RE.search(lead)
+    if not noun_match or not are_match or noun_match.start() > are_match.start():
+        return None
+    return along_match.group(1)

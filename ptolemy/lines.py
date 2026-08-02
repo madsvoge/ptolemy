@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import math
 import re
 
-from .classify import COASTAL, ISLAND, is_named_island_walk, is_new_region_declaration, starts_new_coastal_arc, starts_new_named_island
+from .classify import COASTAL, ISLAND, is_named_island_walk, is_new_region_declaration, river_bank_city_lead_name, starts_new_coastal_arc, starts_new_named_island
 from .parser import Section
 from .points import Point
 from .tag import RESTATED_LANDMARK_RE
@@ -238,22 +238,54 @@ def build_coastlines(streams: dict[str, list[list[tuple[str, Point, str]]]], res
 # of the noise here comes from boundary-marker sentences that merely
 # mention a river/mountain in passing, and this is a deliberate filter to
 # keep those out rather than a gap to patch with more patterns.
+# Every keyword below (mouth/sources/river/bend/estuary/confluence/
+# junction/and/with/the/of) is matched case-insensitively -- a citation
+# that opens its own section is routinely sentence-initial and
+# capitalized ("Mouth of the River Lykos", confirmed throughout book 7,
+# India) where every other citation of the same idiom uses lowercase
+# ("mouth of the river Rhymmos"). Confirmed as a real, wide gap: case-
+# sensitive matching alone left the *entire* Ganges/Indus tributary
+# catalogue's own "Mouth of River X"/"Sources of the River X" citations
+# unnamed, and therefore silently dropped from every river line. The
+# name capture itself stays case-sensitive via (?-i:...), or the
+# optional "the"/"river" skip would fail on a capitalized "The"/"River"
+# and the capture group would swallow that word instead of the real name
+# right after it.
 _RIVER_TEMPLATES = [
-    re.compile(r"\bmouths?\s+of\s+(?:the\s+)?([A-Z][\w-]*)\b"),
-    re.compile(r"\bsources?\s+of\s+(?:the\s+)?(?:river\s+)?([A-Z][\w-]*)\b"),
-    re.compile(r"\b([A-Z][\w-]*)\s+river\b"),
+    re.compile(r"\bmouths?\s+of\s+(?:the\s+)?((?-i:[A-Z])[\w-]*)\b", re.I),
+    re.compile(r"\bsources?\s+of\s+(?:the\s+)?(?:river\s+)?((?-i:[A-Z])[\w-]*)\b", re.I),
+    re.compile(r"\b((?-i:[A-Z])[\w-]*)\s+river\b", re.I),
     # "river Nile", "the river Astapos" -- reversed word order used
     # throughout the Nile catalogue (§4.7.20-26), where "X river" is used
     # everywhere else. Checked after "X river" so a plain "Nile river"
     # citation still resolves the same way regardless of which template
     # would have matched.
-    re.compile(r"\briver\s+([A-Z][\w-]*)\b"),
-    re.compile(r"\bbend\s+of\s+(?:the\s+)?([A-Z][\w-]*)\b"),
+    re.compile(r"\briver\s+((?-i:[A-Z])[\w-]*)\b", re.I),
+    re.compile(r"\bbend\s+of\s+(?:the\s+)?((?-i:[A-Z])[\w-]*)\b", re.I),
+    # "Clota estuary", "Belisama estuary" -- Britain's own river-mouth
+    # naming convention (confirmed book.map 2.3), "X estuary" rather than
+    # "mouth of X"/"X river" used everywhere else. Without this template
+    # these already-'river_mouth'-tagged points had no name at all, so
+    # they were silently dropped from every named river line.
+    re.compile(r"\b((?-i:[A-Z])[\w-]*)\s+estuary\b", re.I),
+]
+# "Confluence of the Koa and Indus", "Junction of the Kiabros with the
+# Danube" -- a tributary joining a named river, both names given in the
+# same breath (confirmed 26 occurrences corpus-wide, Nile/Indus/Ganges/
+# Danube/Rhodanus/Oxos/Iaxartes/Tigris systems, zero false positives
+# checked by hand). Unlike every other river template above, which name
+# a point belongs to for grouping, a confluence point belongs to *both*
+# rivers' groups at once -- it's the tributary's own endpoint and a real
+# waypoint on the main river's course simultaneously. See
+# river_base_names (plural), the only caller that uses this.
+_RIVER_CONFLUENCE_TEMPLATES = [
+    re.compile(r"\b(?:confluence|junction)\s+of\s+(?:the\s+)?(?:river\s+)?((?-i:[A-Z])[\w-]*)\s+and\s+(?:the\s+)?(?:river\s+)?((?-i:[A-Z])[\w-]*)\b", re.I),
+    re.compile(r"\b(?:confluence|junction)\s+of\s+(?:the\s+)?(?:river\s+)?((?-i:[A-Z])[\w-]*)\s+with\s+(?:the\s+)?(?:river\s+)?((?-i:[A-Z])[\w-]*)\b", re.I),
 ]
 _MOUNTAIN_TEMPLATES = [
-    re.compile(r"\bmt\.?\s+([A-Z][\w-]*)\b", re.I),
-    re.compile(r"\b([A-Z][\w-]*)\s+mountains?\b"),
-    re.compile(r"\bmountains?\s+of\s+(?:the\s+)?([A-Z][\w-]*)\b"),
+    re.compile(r"\bmt\.?\s+((?-i:[A-Z])[\w-]*)\b", re.I),
+    re.compile(r"\b((?-i:[A-Z])[\w-]*)\s+mountains?\b", re.I),
+    re.compile(r"\bmountains?\s+of\s+(?:the\s+)?((?-i:[A-Z])[\w-]*)\b", re.I),
 ]
 
 _GENERIC_RIVER_WORDS = {"river", "the", "sea", "sources", "source"}
@@ -286,6 +318,28 @@ def river_base_name(point: Point) -> str | None:
     return None
 
 
+def river_base_names(point: Point) -> list[str]:
+    """Every river a point belongs to -- almost always the same single
+    name river_base_name (singular) returns, except a confluence citation
+    ("Confluence of the Koa and Indus"), which names *two* rivers at once
+    and genuinely belongs to both: it's the tributary's own endpoint and,
+    simultaneously, a real waypoint sitting on the main river's course.
+    Threading it into both groups is what makes the tributary's own line
+    actually meet the river it joins, rather than stopping just short of
+    it (confirmed §7.1.26-30's Indus/Ganges tributary catalogue: without
+    this, e.g. the Koa's own line ended at a point never shared with the
+    Indus's line, an unconnected loose end sitting right next to it)."""
+    for phrase in point.name_variants:
+        for template in _RIVER_CONFLUENCE_TEMPLATES:
+            m = template.search(phrase)
+            if m:
+                a, b = m.group(1), m.group(2)
+                if a.lower() not in _GENERIC_RIVER_WORDS and b.lower() not in _GENERIC_RIVER_WORDS:
+                    return [a, b]
+    single = river_base_name(point)
+    return [single] if single else []
+
+
 def mountain_base_name(point: Point) -> str | None:
     for phrase in point.name_variants:
         name = _last_template_match(phrase, _MOUNTAIN_TEMPLATES)
@@ -294,16 +348,19 @@ def mountain_base_name(point: Point) -> str | None:
     return None
 
 
-def _build_named_feature_lines(points: list[Point], kind: str, base_name_fn, cap: float) -> list[Line]:
+def _build_named_feature_lines(points: list[Point], kind: str, names_fn, cap: float) -> list[Line]:
+    """names_fn returns every group a point belongs to (almost always
+    zero or one; a river confluence point belongs to two at once -- see
+    river_base_names). A point in two groups appears once in each
+    resulting Line, which is exactly what makes a tributary's own line
+    actually meet the river it joins at a shared vertex."""
     groups: dict[tuple[str, str], list[Point]] = {}
     display_names: dict[tuple[str, str], str] = {}
     for p in points:
-        base = base_name_fn(p)
-        if base is None:
-            continue
-        key = (p.book_map, base.lower())
-        groups.setdefault(key, []).append(p)
-        display_names.setdefault(key, base)
+        for base in names_fn(p):
+            key = (p.book_map, base.lower())
+            groups.setdefault(key, []).append(p)
+            display_names.setdefault(key, base)
 
     lines: list[Line] = []
     for key, group_points in groups.items():
@@ -322,14 +379,39 @@ def _build_named_feature_lines(points: list[Point], kind: str, base_name_fn, cap
     return lines
 
 
-def build_rivers(points: list[Point], cap: float = RIVER_CAP_DEG) -> list[Line]:
-    river_points = [p for p in points if "river" in p.tags or "river_mouth" in p.tags]
-    return _build_named_feature_lines(river_points, "river", river_base_name, cap)
+def build_rivers(points: list[Point], sections: list[Section], cap: float = RIVER_CAP_DEG) -> list[Line]:
+    # A city cited in a "the following cities are along the Danube
+    # river:" section (confirmed §3.10.5, §2.12.4, §3.10.8) carries no
+    # river vocabulary in its own name -- "Bragodurum" mentions no river
+    # at all -- so river_base_names alone can never place it. The
+    # section's own lead is the only place that link exists; bank_city_rivers
+    # maps every such section to the river its cities sit along.
+    bank_city_rivers: dict[str, str] = {}
+    for section in sections:
+        name = river_bank_city_lead_name(section)
+        if name:
+            bank_city_rivers[section.key] = name
+
+    def names_fn(p: Point) -> list[str]:
+        names = river_base_names(p)
+        for o in p.occurrences:
+            hint = bank_city_rivers.get(o.section_key)
+            if hint and hint not in names:
+                names = names + [hint]
+        return names
+
+    river_points = [
+        p for p in points
+        if "river" in p.tags or "river_mouth" in p.tags
+        or any(o.section_key in bank_city_rivers for o in p.occurrences)
+    ]
+    return _build_named_feature_lines(river_points, "river", names_fn, cap)
 
 
 def build_mountains(points: list[Point], cap: float = MOUNTAIN_CAP_DEG) -> list[Line]:
     mountain_points = [p for p in points if "mountain" in p.tags]
-    return _build_named_feature_lines(mountain_points, "mountain", mountain_base_name, cap)
+    names_fn = lambda p: [name] if (name := mountain_base_name(p)) else []
+    return _build_named_feature_lines(mountain_points, "mountain", names_fn, cap)
 
 
 # ---------------------------------------------------------------------
@@ -354,7 +436,8 @@ def build_islands(points: list[Point], resolved: dict[str, str], cap: float = MO
         p for p in points
         if "island" in p.tags and any(resolved[o.section_key] == ISLAND for o in p.occurrences)
     ]
-    return _build_named_feature_lines(island_points, "island", island_base_name, cap)
+    names_fn = lambda p: [name] if (name := island_base_name(p)) else []
+    return _build_named_feature_lines(island_points, "island", names_fn, cap)
 
 
 # ---------------------------------------------------------------------
@@ -436,7 +519,7 @@ def build_all_lines(sections: list[Section], points: list[Point], resolved: dict
     streams = build_citation_streams(sections, occurrence_index)
     lines = []
     lines += build_coastlines(streams, resolved)
-    lines += build_rivers(points)
+    lines += build_rivers(points, sections)
     lines += build_mountains(points)
     lines += build_islands(points, resolved)
     lines += build_island_walks(sections, resolved, occurrence_index)
