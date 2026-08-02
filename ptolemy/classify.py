@@ -353,3 +353,23 @@ def starts_new_named_island(name_phrase: str) -> bool:
     instead of connecting the new island's points onto the previous one's.
     """
     return bool(_ISLAND_SUBHEADING_RE.search(name_phrase))
+
+
+# Ptolemy's own convention for opening a named region's boundary
+# declaration ("Position of Epiros...", "Position of the Peloponnesos...")
+# -- almost always a book.map's own first section, where it needs no
+# special handling (dedup/line-building are already scoped per book.map).
+# The one confirmed exception is §3.14.25, "Position of the Peloponnesos",
+# appearing *mid* book.map 3.14: Ptolemy's own Achaia map covers both
+# mainland Greece and the separate Peloponnese peninsula as one catalogue
+# unit, so nothing about book.map scoping keeps their two, only-narrowly-
+# connected coastlines apart. lines.py uses this to force a hard break
+# in the coastal-walk stream there, rather than let greedy distance-based
+# stitching treat both as one continuous (and, worse, spuriously
+# self-closing -- confirmed connecting Achaia's own mainland starting
+# point back to the Peloponnese's own last point) trail.
+_NEW_REGION_LEAD_RE = re.compile(r"^position\s+of\b", re.I)
+
+
+def is_new_region_declaration(section: Section) -> bool:
+    return bool(_NEW_REGION_LEAD_RE.search(section.lead_text))

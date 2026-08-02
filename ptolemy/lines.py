@@ -8,9 +8,10 @@ from dataclasses import dataclass
 import math
 import re
 
-from .classify import COASTAL, ISLAND, is_named_island_walk, starts_new_named_island
+from .classify import COASTAL, ISLAND, is_named_island_walk, is_new_region_declaration, starts_new_named_island
 from .parser import Section
 from .points import Point
+from .tag import RESTATED_LANDMARK_RE
 
 # Starting point suggested by prior art on this same kind of reconstruction,
 # re-derived empirically against this text: consecutive-citation gaps for
@@ -57,13 +58,24 @@ def _trail_length(trail: list[Point]) -> float:
     return sum(_dist(a, b) for a, b in zip(trail, trail[1:]))
 
 
-def build_citation_streams(sections: list[Section], occurrence_index: dict[tuple[str, int], Point]) -> dict[str, list[tuple[str, Point]]]:
-    """Every citation, in document order, grouped by book.map: (section_key, Point)."""
-    streams: dict[str, list[tuple[str, Point]]] = {}
+def build_citation_streams(sections: list[Section], occurrence_index: dict[tuple[str, int], Point]) -> dict[str, list[list[tuple[str, Point, str]]]]:
+    """Every citation, in document order, grouped by book.map, and within
+    that further split into segments at each is_new_region_declaration
+    section (confirmed §3.14.25, "Position of the Peloponnesos", mid
+    book.map 3.14) -- almost always just one segment per book.map, but two
+    genuinely separate landmasses catalogued under the same book.map must
+    never have their coastlines bridged by build_coastlines' own greedy
+    distance-based stitching just because book.map scoping alone doesn't
+    separate them. Each segment entry is (section_key, Point, this
+    citation's own raw name_phrase)."""
+    streams: dict[str, list[list[tuple[str, Point, str]]]] = {}
     for section in sections:
+        segments = streams.setdefault(section.book_map, [[]])
+        if is_new_region_declaration(section) and segments[-1]:
+            segments.append([])
         for citation in section.citations:
             point = occurrence_index[(section.key, citation.char_offset)]
-            streams.setdefault(section.book_map, []).append((section.key, point))
+            segments[-1].append((section.key, point, citation.name_phrase))
     return streams
 
 
@@ -150,33 +162,66 @@ def _maybe_close_loop(trail: list[Point], cap: float) -> bool:
     return d <= cap and length > 0 and d <= LOOP_CLOSE_RELATIVE_FRACTION * length
 
 
-def build_coastlines(streams: dict[str, list[tuple[str, Point]]], resolved: dict[str, str],
+def build_coastlines(streams: dict[str, list[list[tuple[str, Point, str]]]], resolved: dict[str, str],
                       cap: float = COASTLINE_CAP_DEG) -> list[Line]:
     lines: list[Line] = []
-    for book_map, seq in streams.items():
-        # "coast" in point.tags is a *point*-level property (true if any of
-        # its occurrences earned it), but a point can also be cited once
-        # more elsewhere in the same book.map as an incidental boundary/
-        # inland aside (confirmed §2.5.1/§2.5.3, Lusitania: the Dourius
-        # river mouth restated as the province's own opening boundary
-        # landmark, then cited again, correctly, as the coastal walk's own
-        # last point) -- including that non-coastal occurrence's position
-        # in the walk stitched in a spurious early detour to the same
-        # coordinate. Only an occurrence whose *own* section actually
-        # resolved COASTAL belongs in the walk.
-        coastal_points = [p for key, p in seq if "coast" in p.tags and resolved[key] == COASTAL]
-        runs = _split_into_runs(coastal_points, cap)
-        runs = _stitch_runs(runs, cap)
-        for i, trail in enumerate(runs, start=1):
-            closed = _maybe_close_loop(trail, cap)
-            lines.append(Line(
-                id=f"coastline-{book_map}-{i}",
-                kind="coastline",
-                book_map=book_map,
-                feature_name=None,
-                point_ids=[p.id for p in trail],
-                closed=closed,
-            ))
+    for book_map, segments in streams.items():
+        i = 0
+        for seq in segments:
+            # "coast" in point.tags is a *point*-level property (true if
+            # any of its occurrences earned it), but a point can also be
+            # cited once more elsewhere in the same book.map as an
+            # incidental boundary/inland aside (confirmed §2.5.1/§2.5.3,
+            # Lusitania: the Dourius river mouth restated as the
+            # province's own opening boundary landmark, then cited again,
+            # correctly, as the coastal walk's own last point) --
+            # including that non-coastal occurrence's position in the walk
+            # stitched in a spurious early detour to the same coordinate.
+            # Only an occurrence whose *own* section actually resolved
+            # COASTAL belongs in the walk.
+            #
+            # A *second* real signal for the same "restated, not a fresh
+            # waypoint" problem: Ptolemy routinely opens a new region's own
+            # coastal description by restating the previous region's last
+            # landmark for orientation ("After Pegai in the Megarid, which
+            # is in the Corinthian gulf...", confirmed §3.14.6/§3.14.26) --
+            # and that restated citation's own section resolves COASTAL
+            # just like the walk it's opening, so the check above doesn't
+            # catch it. Once a point has already been placed in this
+            # segment's walk, a later occurrence matching tag.py's own
+            # RESTATED_LANDMARK_RE idiom is that restatement, not a second
+            # real waypoint to revisit -- skipped, or it stitched a
+            # spurious detour back to the earlier coordinate (confirmed:
+            # connected clean across the Boiotia/Attike coast to the
+            # unrelated Megarid point, self-intersecting the drawn
+            # coastline). A point's own genuine *first* occurrence is
+            # never skipped this way even if its phrase happens to match
+            # the same idiom (confirmed §4.5.74's Lesser Cataract and
+            # §3.10.7's mouth of the Borysthenes: both are a section's own
+            # real opening waypoint, not a restatement of anything cited
+            # earlier).
+            coastal_points: list[Point] = []
+            seen: set[str] = set()
+            for key, p, phrase in seq:
+                if "coast" not in p.tags or resolved[key] != COASTAL:
+                    continue
+                if p.id in seen and RESTATED_LANDMARK_RE.search(phrase):
+                    continue
+                coastal_points.append(p)
+                seen.add(p.id)
+            runs = _split_into_runs(coastal_points, cap)
+            runs = _stitch_runs(runs, cap)
+            for trail in runs:
+                i += 1
+                closed = _maybe_close_loop(trail, cap)
+                lines.append(Line(
+                    id=f"coastline-{book_map}-{i}",
+                    kind="coastline",
+                    book_map=book_map,
+                    feature_name=None,
+                    point_ids=[p.id for p in trail],
+                    closed=closed,
+                ))
     return lines
 
 

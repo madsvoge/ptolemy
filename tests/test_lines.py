@@ -78,6 +78,57 @@ def test_coastal_walk_ignores_a_points_own_restated_boundary_occurrence():
     assert trail.point_ids[-1] == dourius.id
 
 
+def test_mid_book_map_region_declaration_splits_the_coastal_walk():
+    # Confirmed §3.14.25, "Position of the Peloponnesos": Ptolemy's own
+    # Achaia map (book.map 3.14) covers both mainland Greece and the
+    # separate Peloponnese peninsula as one catalogue unit, and the
+    # Peloponnese's own coastal description opens by restating the
+    # mainland's last-cited point (Pegai) purely for orientation. Without
+    # splitting there, the whole book.map's citations formed one long
+    # trail whose first point (mainland) and last point (Peloponnese)
+    # happened to sit close enough to spuriously "close the loop",
+    # self-intersecting near the isthmus (confirmed P2437/P2243).
+    text = (
+        "§ 3.14.2  After the Acheloos river, which is the border of Epiros, "
+        "as follows: Aitolia\n"
+        "Chersonesos promontory 48°30' . 37°25'\n"
+        "Euenos river outlet 49°00' . 37°30'\n\n\n"
+        "§ 3.14.6  Megarid\n"
+        "Pegai 51°25' . 37°25'\n"
+        "Nisaia 52°00' . 37°20'\n\n\n"
+        "§ 3.14.25  Position of the Peloponnesos: bounded to the north by "
+        "the Corinthian Gulf.\n"
+        "And the shore of this has the following description:\n\n\n"
+        "§ 3.14.26  After Pegai in the Megarid, which is in the Corinthian "
+        "gulf off Achaia, at degrees 51°25' . 37°25'\n\n\n"
+        "§ 3.14.27  Of the Korinthia:\n"
+        "Lechaion port 51°20' . 37°00'\n"
+        "Schoinous harbor 50°45' . 36°50'\n"
+    )
+    points, lines = _build(text)
+    coastlines = [l for l in lines if l.kind == "coastline"]
+    assert len(coastlines) == 2
+    point_by_id = {p.id: p for p in points}
+    mainland = next(l for l in coastlines if any(
+        point_by_id[pid].name == "Chersonesos promontory" for pid in l.point_ids))
+    peloponnese = next(l for l in coastlines if l is not mainland)
+    # The mainland trail must not reach all the way to Schoinous harbor
+    # (the Peloponnese's own point), and vice versa -- they're two
+    # separate trails now, not one spuriously self-closing loop.
+    mainland_names = {point_by_id[pid].name for pid in mainland.point_ids}
+    peloponnese_names = {point_by_id[pid].name for pid in peloponnese.point_ids}
+    assert "Schoinous harbor" not in mainland_names
+    assert "Chersonesos promontory" not in peloponnese_names
+    # Pegai itself is the deliberate hand-off point: its real §3.14.6
+    # citation belongs to the mainland trail, and its restated §3.14.26
+    # occurrence correctly opens the Peloponnese's own trail -- appearing
+    # once in each, by design, not a spurious revisit within either one.
+    assert mainland.point_ids.count(
+        next(p.id for p in points if p.name == "Pegai")) == 1
+    assert peloponnese.point_ids.count(
+        next(p.id for p in points if p.name == "Pegai")) == 1
+
+
 def test_river_grouping_connects_mouth_and_source_by_shared_name():
     text = (
         "§ 2.9.1  A description of the coast\n"

@@ -100,6 +100,41 @@ def test_tribal_city_idiom_wins_over_a_coastal_landmark_word_in_the_same_phrase(
     assert p.tags == {"city"}
 
 
+def test_reference_marker_wins_over_a_coastal_landmark_word_in_the_same_phrase():
+    # Confirmed P2044, §3.12.3: "Along Achaia until the Maliac gulf to the
+    # end, position" -- "gulf" is a _COAST_NAME_RE explicit_checks entry
+    # checked before the reference-marker idiom, so it silently won and
+    # tagged this restated boundary-line endpoint 'coast' instead of
+    # 'city', same class of bug as the tribal-city idiom above.
+    text = (
+        "§ 3.12.3  Elimiotes\n"
+        "Along Achaia until the Maliac gulf to the end, position 51°00' . 38°25'\n"
+    )
+    points = _tagged_points(text)
+    p = next(iter(points.values()))
+    assert p.tags == {"city"}
+
+
+def test_restated_landmark_idiom_does_not_strip_coast_from_a_genuinely_coastal_point():
+    # Confirmed regression risk on Pegai, P2255: promoting the weaker
+    # "after X, which is" reference-marker idiom into explicit_checks (the
+    # way the reliable tier above is) cost the point its 'coast' tag
+    # entirely, since tag_point's `name` joins *every* occurrence's phrase
+    # into one string -- Pegai's own genuine §3.14.6 citation has no
+    # marker language of its own, but its *other* occurrence (§3.14.26,
+    # restating it to open the Peloponnese's own coastal walk) does, and
+    # that alone must not flip the whole point away from 'coast'.
+    text = (
+        "§ 3.14.6  Megarid\nPegai 51°25' . 37°25'\n\n\n"
+        "§ 3.14.25  Position of the Peloponnesos: bounded to the north by "
+        "the Corinthian Gulf.\n\n\n"
+        "§ 3.14.26  After Pegai in the Megarid, which is in the Corinthian "
+        "gulf off Achaia, at degrees 51°25' . 37°25'\n"
+    )
+    points = _tagged_points(text)
+    assert points["Pegai"].tags == {"coast"}
+
+
 def test_bare_the_town_name_idiom_is_tagged_city():
     # Confirmed P136, §2.3.10: "Near which on the Opportunum bay are the
     # Parisi and the town Petuaria" -- the same tribal-capital idiom as

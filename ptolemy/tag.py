@@ -172,7 +172,46 @@ _REFERENCE_MARKER_RE = re.compile(
     # alongside mountain-range extremity citations in boundary-heavy
     # sections (confirmed 5.9.15, 3.5.12: "Altars of Alexander"/"Altars of
     # Caesar" both mark the same river-turn boundary point on the Tanais).
-    r"|\bgates\b|\bpillars\s+of\b|\baltars\s+of\b",
+    r"|\bgates\b|\bpillars\s+of\b|\baltars\s+of\b"
+    # "Along Achaia until the Maliac gulf to the end, position..." -- the
+    # same restated boundary-line-endpoint idiom as "until the end" above,
+    # just with an extra clause inserted before "the end" (confirmed
+    # §3.12.3's own Thessalian/Achaia border, right next to that section's
+    # other "until the end" citation).
+    r"|\bto\s+the\s+end\b",
+    re.I,
+)
+# A second, *weaker* reference-marker idiom, kept as its own separate
+# pattern rather than folded into _REFERENCE_MARKER_RE above: "After the
+# Nestos river, which is the border of Thrace..." / "After Pegai in the
+# Megarid, which is in the Corinthian gulf..." -- Ptolemy routinely opens
+# a new region's coastal description by restating the previous region's
+# own last-cited landmark as an orientation hand-off, not a fresh waypoint
+# (confirmed §3.12.6 and §3.14.26, and again on Taprobane, §7.4.3: "After
+# the North Cape which is situated in..." restates §7.4.2's own single
+# citation). The capitalized name right after "after (the)?" is what
+# distinguishes this from an ordinary boundary-restatement sentence that
+# happens to use "after" as a plain preposition mid-clause (confirmed
+# §3.10.7: "...the shore is as follows: after the mouth of the
+# Borysthenes, which is at..." -- lowercase "mouth", not a proper noun,
+# stays excluded; that citation really is the walk's own first point, not
+# a restatement of anything cited earlier) -- but that alone isn't a
+# reliable enough signal to also exclude a *first* occurrence outright
+# (confirmed §4.5.74: "east of the river after the Lesser Cataract, which
+# is at..." matches this same shape but is that citation's own only,
+# genuine appearance in book.map 4.5, not a restatement of anything).
+# Kept separate from _REFERENCE_MARKER_RE for that reason: unlike every
+# pattern above, this one is only trusted by build_coastlines when the
+# point it matches has *already* been placed once earlier in the same
+# coastal-walk segment (see its own comment) -- and NOT promoted into
+# tag_point's explicit_checks the way _REFERENCE_MARKER_RE effectively is
+# via the fallback below, since a point's combined `name` joins every
+# occurrence's phrase into one string, and doing so cost a point that is
+# genuinely coastal at one citation its 'coast' tag entirely just because
+# *another* occurrence of the same point matches this idiom (confirmed
+# regression on Pegai, P2255).
+RESTATED_LANDMARK_RE = re.compile(
+    r"\bafter\s+(?:the\s+)?(?-i:[A-Z])[\w\s-]{0,40}?,?\s+which\s+is\b",
     re.I,
 )
 # "Branch of/from the Indus into the Sagapa mouth" names a distributary
@@ -227,15 +266,31 @@ def tag_point(point: Point, resolved: dict[str, str]) -> set[str]:
         # *explicit_checks* entry checked earlier in list order (confirmed
         # bug on 2.3.10/2.8.5: "bay"/"promontory" elsewhere in the same
         # restated sentence silently won every time, tagging the tribal
-        # capital 'coast' instead of 'city').
-        ("city", bool(TRIBAL_CITY_RE.search(name)) or bool(TRIBAL_CITY_BARE_RE.search(name))),
+        # capital 'coast' instead of 'city'). _REFERENCE_MARKER_RE (the
+        # reliable tier -- "limit point", "until the end", "gates",
+        # "pillars of"...) is the same class of bug for the same reason
+        # (confirmed §3.12.3, P2044: "Along Achaia until the Maliac gulf
+        # to the end, position" has "gulf" sitting right there too).
+        # RESTATED_LANDMARK_RE (the weaker "after X, which is" tier) is
+        # deliberately NOT included here: a point's combined `name` joins
+        # *every* occurrence's phrase into one string (see top of this
+        # function), and a point can genuinely be a real coastal waypoint
+        # at one citation while also being restated via that weaker idiom
+        # at another (confirmed regression on Pegai, P2255: promoting it
+        # here made its genuine §3.14.6 coastal citation lose the 'coast'
+        # tag entirely just because its *other* occurrence, §3.14.26,
+        # matches it). build_coastlines' own per-citation phrase check
+        # already excludes that specific restated occurrence from the walk
+        # without needing the point's aggregate tag to lose 'coast'.
+        ("city", bool(TRIBAL_CITY_RE.search(name)) or bool(TRIBAL_CITY_BARE_RE.search(name))
+         or bool(_REFERENCE_MARKER_RE.search(name))),
         ("harbor", bool(_HARBOR_RE.search(name))),
         ("coast", bool(_COAST_NAME_RE.search(name))),
         ("lake", bool(_LAKE_RE.search(name))),
     ]
     primary = next((tag for tag, matched in explicit_checks if matched), None)
     if primary is None:
-        if _REFERENCE_MARKER_RE.search(name):
+        if RESTATED_LANDMARK_RE.search(name):
             primary = "city"
         elif COASTAL in section_types:
             primary = "coast"
