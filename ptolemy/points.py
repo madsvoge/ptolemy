@@ -33,6 +33,35 @@ _TRAILING_STOPWORDS = {
     "the", "near", "and",
 }
 
+# Ptolemy routinely folds a tribe's or nome's capital into a much longer
+# sentence naming the tribe/region itself first ("Further east than the
+# Remi are, more northerly, the Treveri and their city Augusta Treverum",
+# "The Atribati occupy the sea coast...their city being Nemetacum") --
+# recognized here by the same marker tag.py's own point-tagging uses to
+# spot this idiom (see tag.py's _TRIBAL_CITY_RE/_TRIBAL_CITY_BARE_RE,
+# which import these two regexes from here rather than duplicating them).
+# Defined in points.py, not tag.py, because trim_name needs them too:
+# neither the leading- nor trailing-stopword trim below reaches into the
+# *middle* of a sentence, so without this a point like that ended up
+# named after its entire tribal description instead of just "Augusta
+# Treverum" (confirmed §2.9.7).
+TRIBAL_CITY_RE = re.compile(
+    r"\b(?:city|town)\s+is\b|\b(?:cities|towns)\s+is\b"
+    r"|\bwhose\s+(?:city|town)\b|\btheir\s+(?:city|town)\b"
+    r"|\b(?:city|town)\s+being\b",
+    re.I,
+)
+TRIBAL_CITY_BARE_RE = re.compile(r"\bthe\s+towns?\s+[A-Z]")
+# The place's own real name is always the trailing run of capitalized
+# words -- whatever tribal/nome description precedes it in the sentence
+# is never itself capitalized-word-for-word all the way to the very end
+# (confirmed against every "their city"/"whose city"/"the town" citation
+# in this text, including asides sitting between the marker and the name
+# itself, e.g. "whose city on the eastern bank of the Sequana River is
+# Ratomagus" -- "Sequana River" is capitalized too, but isn't at the tail,
+# so this still isolates just "Ratomagus").
+_TRAILING_PROPER_NOUN_RE = re.compile(r"[A-Z][\w-]*(?:\s+[A-Z][\w-]*)*$")
+
 
 def trim_name(phrase: str) -> str:
     phrase = phrase.strip()
@@ -42,6 +71,10 @@ def trim_name(phrase: str) -> str:
     # the last colon is the name, whatever the intro reads like.
     if ":" in phrase:
         phrase = phrase.rsplit(":", 1)[1]
+    if TRIBAL_CITY_RE.search(phrase) or TRIBAL_CITY_BARE_RE.search(phrase):
+        m = _TRAILING_PROPER_NOUN_RE.search(phrase.strip(" ,:;."))
+        if m:
+            return m.group(0)
     words = phrase.strip().strip(":,;.").split()
     while words and words[0].strip(",:;").lower() in _LEADING_STOPWORDS:
         words.pop(0)

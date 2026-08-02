@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 
 from .classify import BOUNDARY, COASTAL, ISLAND, MOUNTAIN
-from .points import Point
+from .points import Point, TRIBAL_CITY_BARE_RE, TRIBAL_CITY_RE
 
 _ISLAND_NAME_RE = re.compile(r"\bisland", re.I)
 # "Mt." (with or without the period) is this text's dominant way of citing
@@ -125,20 +125,10 @@ _LAKE_RE = re.compile(r"\blakes?\b", re.I)
 # confirmed the promontory mention alone otherwise outranked this check
 # entirely, since it used to only run as a last-resort fallback after
 # every explicit_checks entry, including the bare _COAST_NAME_RE match, had
-# already failed to fire).
-_TRIBAL_CITY_RE = re.compile(
-    r"\b(?:city|town)\s+is\b|\b(?:cities|towns)\s+is\b"
-    r"|\bwhose\s+(?:city|town)\b|\btheir\s+(?:city|town)\b"
-    r"|\b(?:city|town)\s+being\b",
-    re.I,
-)
-# The bare noun-phrase form of the same idiom, no verb at all -- "the town
-# Petuaria", "the town Devana" -- always a proper noun immediately after
-# "the town(s)", never "the towns are:" (a list-intro handled separately
-# by _INLAND_WEAK_RE's own "towns are" pattern). Kept case-sensitive on
-# purpose: the capital letter *is* the signal that distinguishes a bare
-# name from that list-intro's lowercase "are".
-_TRIBAL_CITY_BARE_RE = re.compile(r"\bthe\s+towns?\s+[A-Z]")
+# already failed to fire). Imported from points.py, not redefined here,
+# since points.trim_name needs the very same marker to recover the city's
+# own bare name out of the same restated sentence (confirmed §2.9.7) -- see
+# TRIBAL_CITY_RE/TRIBAL_CITY_BARE_RE in the import block above.
 # A boundary/orientation aside can land inside an otherwise coastal
 # section too (Ptolemy occasionally re-cites a "limit point" or "extreme
 # point already mentioned" mid-walk to tie the coast back to a boundary
@@ -238,7 +228,7 @@ def tag_point(point: Point, resolved: dict[str, str]) -> set[str]:
         # bug on 2.3.10/2.8.5: "bay"/"promontory" elsewhere in the same
         # restated sentence silently won every time, tagging the tribal
         # capital 'coast' instead of 'city').
-        ("city", bool(_TRIBAL_CITY_RE.search(name)) or bool(_TRIBAL_CITY_BARE_RE.search(name))),
+        ("city", bool(TRIBAL_CITY_RE.search(name)) or bool(TRIBAL_CITY_BARE_RE.search(name))),
         ("harbor", bool(_HARBOR_RE.search(name))),
         ("coast", bool(_COAST_NAME_RE.search(name))),
         ("lake", bool(_LAKE_RE.search(name))),

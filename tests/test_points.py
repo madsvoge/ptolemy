@@ -44,6 +44,36 @@ def test_trim_name_leaves_descriptive_names_untouched():
     assert trim_name("mouth of the Vidua river") == "mouth of the Vidua river"
 
 
+def test_trim_name_recovers_bare_city_name_from_tribal_restatement():
+    # Confirmed §2.9.7: "Further east than the Remi are, more northerly,
+    # the Treveri and their city Augusta Treverum" was becoming the
+    # point's whole *name* -- neither the leading nor trailing stopword
+    # trim reaches into the middle of a sentence to cut this down to just
+    # "Augusta Treverum", the city's own real name.
+    text = (
+        "Further east than the Remi are, more northerly, the Treveri and "
+        "their city Augusta Treverum"
+    )
+    assert trim_name(text) == "Augusta Treverum"
+
+
+def test_trim_name_recovers_bare_city_name_with_aside_before_the_verb():
+    # Confirmed §2.9.6: an aside sits between "whose city" and the verb
+    # that finally introduces the real name -- "Ratomagus" must still be
+    # isolated, not "Sequana River" (also capitalized, but not the name).
+    text = (
+        "And below these are the Subanecti whose city on the eastern "
+        "bank of the Sequana River is Ratomagus"
+    )
+    assert trim_name(text) == "Ratomagus"
+
+
+def test_trim_name_recovers_bare_town_name_with_no_verb_at_all():
+    # Confirmed §2.3.10: "the town Petuaria" with no "is"/"being" verb.
+    text = "Near which on the Opportunum bay are the Parisi and the town Petuaria"
+    assert trim_name(text) == "Petuaria"
+
+
 def test_canonical_name_prefers_shortest_cleaned_variant():
     sections = parse_sections(RESTATEMENT_TEXT)
     points = dedup_points(sections)
