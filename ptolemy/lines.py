@@ -406,9 +406,21 @@ _RIVER_NAME_STOPWORDS = {
     "those", "each", "it",
 }
 
+# Its own name, checked ahead of the general last-match-wins priority
+# below (see _river_primary_name) -- a multi-outlet delta citation
+# routinely names both the *river* and that specific outlet's own name
+# in one phrase ("The most western mouth of the River Indus called
+# Sagapa", confirmed §7.1.2), and last-match-wins would otherwise prefer
+# "Sagapa" (mentioned last, closest to the coordinate) over "Indus",
+# losing the river's own mouth entirely -- confirmed regression: every
+# tributary that confluences into the Indus or Ganges (Koa, Souastos,
+# Bidaspes, Sandabal, Adris, Bidasis, Zaradros; Diamouna, Sarabos) then
+# had nowhere left to reach, since Indus/Ganges's own trail never
+# extended to any of their delta's real mouth citations.
+_RIVER_MOUTH_NAME_RE = re.compile(r"(?i:mouths?)\s+of\s+(?i:the\s+)?(?i:river\s+)?([A-Z][\w-]*)")
 _RIVER_NAME_TEMPLATES = [
     re.compile(r"(?i:sources?|springs?)\s+of\s+(?i:the\s+)?(?i:river\s+)?([A-Z][\w-]*)"),
-    re.compile(r"(?i:mouths?)\s+of\s+(?i:the\s+)?(?i:river\s+)?([A-Z][\w-]*)"),
+    _RIVER_MOUTH_NAME_RE,
     # "The fork of the Rhabon river..." -- a boundary line that traces a
     # river's own fork/bend points (confirmed §3.8.1, Dacia's boundary
     # following the Tibiskos/Rhabon/Kiabros/Aloutas in turn) is textually
@@ -516,6 +528,26 @@ def _river_last_match(phrase: str, templates: list[re.Pattern]) -> str | None:
             if best is None or m.start() > best[0]:
                 best = (m.start(), name)
     return best[1] if best else None
+
+
+def _river_primary_name(phrase: str) -> str | None:
+    """Like _river_last_match(phrase, _RIVER_NAME_TEMPLATES), but a "mouth
+    of NAME" match wins outright over a later, more-specific name in the
+    same phrase (see _RIVER_MOUTH_NAME_RE) -- *only* when the phrase names
+    just that one single mouth. A restated boundary/orientation sentence
+    routinely mentions two different rivers' mouths in the same breath
+    ("between which and the mouth of the Kyrus is the mouth of the Araxes
+    river", confirmed §5.13.3; "mouth of the Padus river...likewise
+    Atrianos river mouth", confirmed §3.1.25), and there last-match-wins
+    is still correct -- the *last* one is the citation's real subject,
+    the same "restates an earlier river before settling on the one the
+    coordinate is really for" pattern mountain_base_name's own docstring
+    describes."""
+    if len(_RIVER_MOUTH_WORD_RE.findall(phrase)) == 1:
+        m = _RIVER_MOUTH_NAME_RE.search(phrase)
+        if m and m.group(1).lower() not in _RIVER_NAME_STOPWORDS:
+            return m.group(1)
+    return _river_last_match(phrase, _RIVER_NAME_TEMPLATES)
 
 
 def _river_dual_names(phrase: str) -> tuple[str, str] | None:
@@ -679,7 +711,7 @@ def _walk_river_sections(sections_with_flags: list[tuple[Section, bool]],
                 current = key_b
                 continue
 
-            name = _river_last_match(phrase, _RIVER_NAME_TEMPLATES)
+            name = _river_primary_name(phrase)
             if name:
                 is_new = _normalize_river_name(name) not in raw_groups
                 if is_new and not is_river_section and current is None and not _RIVER_OPENING_WORD_RE.search(phrase):
