@@ -77,7 +77,13 @@ def _ring_coords(coords: list[tuple[float, float]], closed: bool) -> list[tuple[
 def render_map(points: list[Point], lines: list[Line], out_path: str,
                 title: str = "Ptolemy's Geographica, reconstructed from topostext (Nobbe)",
                 book_map_filter: str | None = None, width_px: int = 2400,
-                stitches: list[Stitch] | None = None) -> None:
+                stitches: list[Stitch] | None = None,
+                exclude_point_tags: frozenset[str] = frozenset()) -> None:
+    # point_by_id is deliberately built from the *full*, unfiltered points
+    # list -- lines routinely pass through a point whose own tag is being
+    # excluded from the scatter plot below (e.g. a river line's mouth is
+    # also a coastline point), and dropping it here would KeyError every
+    # line that touches it.
     point_by_id = {p.id: p for p in points}
     plot_points = [p for p in points if book_map_filter is None or p.book_map == book_map_filter]
     plot_lines = [l for l in lines if book_map_filter is None or l.book_map == book_map_filter]
@@ -92,6 +98,8 @@ def render_map(points: list[Point], lines: list[Line], out_path: str,
     fig, ax = plt.subplots(figsize=(width_px / dpi, width_px / dpi * 9 / 16))
 
     for tag, color in _POINT_COLORS.items():
+        if tag in exclude_point_tags:
+            continue
         xs = [p.lon_modern for p in plot_points if tag in p.tags and p.id not in loose_ends]
         ys = [p.lat_modern for p in plot_points if tag in p.tags and p.id not in loose_ends]
         if xs:

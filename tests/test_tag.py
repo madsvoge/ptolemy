@@ -523,8 +523,11 @@ def test_bare_and_connector_does_not_apply_when_not_bare():
     points = _tagged_point_list(text)
     assert points[0].tags == {"mountain"}
     # matched its own "source" keyword, not inherited from the mountain --
-    # but the section isn't RIVER-classified, so it's 'river_out_of_section'
-    assert points[1].tags == {"coast", "river_out_of_section"}
+    # but the section isn't RIVER-classified, so it's 'river_out_of_section'.
+    # A river's own source is never a coastal waypoint, even in a
+    # COASTAL-defaulting section, so this falls to 'city' rather than
+    # 'coast' (see _RIVER_SOURCE_RE in tag.py).
+    assert points[1].tags == {"city", "river_out_of_section"}
 
 
 def test_gates_and_pillars_are_not_coastal():

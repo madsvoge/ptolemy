@@ -137,6 +137,13 @@ _RIVER_RE = re.compile(
     r"|\bpart\s+of\s+the\s+river\b|\bwhere\s+the\s+river\b|\briver\b[^.\n]{0,25}\btouches?\b|\btouches?\b[^.\n]{0,25}\briver\b",
     re.I,
 )
+# Narrower than _RIVER_RE above -- just the "this citation is a river's own
+# source" idiom, used only to keep a source point out of the coastal
+# default fallback below (see tag_point). Every other river idiom stays
+# eligible for that fallback (a turn, a delta branch, a mouth genuinely can
+# be the walk's next real waypoint); a source never can be, since it's
+# definitionally inland/upstream.
+_RIVER_SOURCE_RE = re.compile(r"\bsources?\b|\bsprings?\b", re.I)
 # A handful of *generic, name-free* positional clauses Ptolemy uses to cite
 # a point along a river's course without repeating any river keyword at
 # all, relying purely on the reader following the sequence: "The turn
@@ -343,7 +350,19 @@ def tag_point(point: Point, resolved: dict[str, str]) -> set[str]:
     if primary is None:
         if RESTATED_LANDMARK_RE.search(name):
             primary = "city"
-        elif COASTAL in section_types:
+        # A river's own *source* is definitionally inland/upstream, never
+        # itself a point on the coast, even when Ptolemy cites it as an
+        # aside right in the middle of an otherwise coastal walk (the
+        # exact "mouth of X river" / "sources of the river" pairing
+        # build_rivers itself connects -- confirmed §7.4's Taprobane
+        # (Sri Lanka): every one of that island's five river sources was
+        # defaulting to 'coast' here purely because its own section is
+        # COASTAL, wrongly pulling each one into the drawn coastline as a
+        # spurious detour inland and back). Every *other* coastal-default
+        # fallback (a bare "turn of the river", a delta branch, a harbor)
+        # genuinely can be the walk's next real waypoint, so only the
+        # source/spring idiom specifically is excluded here.
+        elif COASTAL in section_types and not _RIVER_SOURCE_RE.search(name):
             primary = "coast"
         else:
             primary = "city"
