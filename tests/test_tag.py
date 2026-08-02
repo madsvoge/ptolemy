@@ -122,6 +122,60 @@ def test_mt_abbreviation_is_tagged_mountain():
     assert "coast" not in p.tags
 
 
+def test_river_source_named_by_its_mountain_gets_both_mountain_and_river_tags():
+    # Confirmed throughout book 4.6's Libyan river catalogue: "Mandron
+    # mountain, from which flow the Salathus river, the Massa river..." --
+    # explicit_checks picks 'mountain' as primary since it's checked ahead
+    # of 'river', but the exact same citation is just as much a river
+    # source. Without adding 'river' as a second tag here, the entire
+    # "river originates at a named mountain" idiom was invisible to
+    # build_rivers, which only ever looks at 'river'/'river_mouth' tags.
+    text = (
+        "§ 4.6.5  Mandron mountain, from which flow the Salathus river, "
+        "the Massa river 12°00' . 28°00'\n"
+    )
+    points = _tagged_points(text)
+    p = next(iter(points.values()))
+    assert p.tags == {"mountain", "river"}
+
+
+def test_river_begins_from_mountain_is_tagged_river_too():
+    # Confirmed §3.12.15: "The Strymon river begins from the mountains
+    # forming the border of Thrace and Macedonia, at this location".
+    text = (
+        "§ 3.12.15  The Strymon river begins from the mountains forming "
+        "the border of Thrace and Macedonia, at this location 48°40' . 42°00'\n"
+    )
+    points = _tagged_points(text)
+    p = next(iter(points.values()))
+    assert "river" in p.tags
+    assert "mountain" in p.tags
+
+
+def test_river_links_two_mountains_is_tagged_river():
+    # Confirmed §4.6.14: "the Nigeir river itself links Mandron mountain
+    # and Thala mountain" -- "links" alone has an unrelated administrative
+    # sense elsewhere in this text ("the northern side links to
+    # Tarraconensis"), so this only fires with "river" nearby.
+    text = (
+        "§ 4.6.14  the Nigeir river itself links Mandron mountain and "
+        "Thala mountain 10°00' . 20°00'\n"
+    )
+    points = _tagged_points(text)
+    p = next(iter(points.values()))
+    assert "river" in p.tags
+
+
+def test_administrative_links_without_a_nearby_river_is_not_tagged_river():
+    text = (
+        "§ 2.4.1  The northern side links to Tarraconensis along the "
+        "western part 10°00' . 20°00'\n"
+    )
+    points = _tagged_points(text)
+    p = next(iter(points.values()))
+    assert "river" not in p.tags
+
+
 def test_tribal_city_idiom_overrides_coastal_default():
     text = (
         "§ 2.8.5  The Caletes occupy the northern coast from the Sequana River; "

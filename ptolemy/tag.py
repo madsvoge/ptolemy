@@ -77,6 +77,24 @@ _RIVER_RE = re.compile(
     # template for the next river). The window allows a period so an
     # embedded "Mt." abbreviation doesn't cut it short.
     r"|\briver\b[^\n]{0,30}\bat\s+position\b"
+    # Other verbs this text uses for the same "river originates at/flows
+    # from a named mountain" idiom: "the Strymon river begins from the
+    # mountains..." (§3.12.15), "Mt. Thammes, from which the Rubricatus
+    # river flows" / "...mountain, from which flow the Salathus river, the
+    # Massa river..." (confirmed throughout book 4.6's Libyan river
+    # catalogue), "the Nigeir river itself links Mandron mountain and
+    # Thala mountain" (§4.6, a river given by the two mountains it
+    # connects rather than a single source), "the Melas river flows to
+    # meet the river Euphrates" (§5.6), and the bare "The Axios river from
+    # Mt. Skardos at <coord>" (§3.12.15) with no verb at all.
+    r"|\bbegins?\s+(?:from|in|at)\b|\bfrom\s+which\s+(?:it\s+)?flows?\b"
+    r"|\bflows?\s+(?:from|to\s+meet)\b|\briver\s+from\s+(?:mt\.?|mounta?in\w*)\b"
+    # "links" alone has an unrelated administrative sense elsewhere in this
+    # text ("The northern side links to Tarraconensis..."), same reasoning
+    # as "connects at" above -- only trusted here when "river" itself sits
+    # nearby (confirmed §4.6.14: "the Nigeir river itself links Mandron
+    # mountain and Thala mountain").
+    r"|\briver\b[^.\n]{0,30}\blinks?\b|\blinks?\b[^.\n]{0,30}\briver\b"
     # "Mid-point of its length" / "Mid–point of the length of the river"
     # (referring anaphorically, or by full restatement, to a river cited
     # nearby) is this text's own way of citing a point partway along a
@@ -320,6 +338,25 @@ def tag_point(point: Point, resolved: dict[str, str]) -> set[str]:
     # drawn coastline into two separate trails around it.
     if primary == "harbor" and COASTAL in section_types:
         tags.add("coast")
+    # A river's own source is routinely given by naming the mountain it
+    # rises from -- "Mt. X, from which the Y river flows" (confirmed
+    # throughout book 4.6's Libyan river catalogue: Mandron, Sagapola,
+    # Russadion, Kapha, Girgiri...), "Sources of the River X in the Y
+    # Mountains" (confirmed book 7.1's Indian river catalogue: Tyna,
+    # Maisolos, Manda...), "the Strymon river begins from the mountains
+    # forming the border of Thrace and Macedonia" (confirmed §3.12.2).
+    # 'mountain' wins primary since explicit_checks puts it ahead of
+    # river/river_mouth, but the same citation is just as much a river
+    # citation -- without this, the entire "river originates at a named
+    # mountain" idiom (exactly the "which mountains do rivers rise from"
+    # case the original brief asked to identify) was invisible to every
+    # river line: a point tagged only 'mountain' never enters
+    # build_rivers' own river_points filter.
+    if primary == "mountain":
+        if river_mouth_hit:
+            tags.add("river_mouth")
+        elif _RIVER_RE.search(name):
+            tags.add("river")
     # A point cited in a boundary/orientation section is a boundary marker
     # *in addition to* whatever its own name says (it's frequently also a
     # duplicate of a point cited properly elsewhere -- see points.py dedup).
