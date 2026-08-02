@@ -368,6 +368,15 @@ _RIVER_TEMPLATES = [
     # these already-'river_mouth'-tagged points had no name at all, so
     # they were silently dropped from every named river line.
     re.compile(r"\b((?-i:[A-Z])[\w-]*)\s+estuary\b", re.I),
+    # "Branch from the Indus running towards Mt. Ouindion", "Branch of the
+    # Koa towards the Paropanisadai" -- a delta fork point named for its
+    # own source river, no destination given (confirmed throughout book
+    # 7.1's own India delta catalogue, §7.1.28-30). Checked last: a
+    # citation naming *both* a source and a destination ("Branch from the
+    # Ganges into the Kambyson Mouth") is handled by the dual-membership
+    # confluence template below instead, so this only ever fires as a
+    # fallback for the source-only shape.
+    re.compile(r"\bbranch(?:es)?\s+(?:from|of)\s+(?:the\s+)?(?:same\s+)?(?:river\s+)?((?-i:[A-Z])[\w-]*)\b", re.I),
 ]
 # "Confluence of the Koa and Indus", "Junction of the Kiabros with the
 # Danube" -- a tributary joining a named river, both names given in the
@@ -381,6 +390,27 @@ _RIVER_TEMPLATES = [
 _RIVER_CONFLUENCE_TEMPLATES = [
     re.compile(r"\b(?:confluence|junction)\s+of\s+(?:the\s+)?(?:river\s+)?((?-i:[A-Z])[\w-]*)\s+and\s+(?:the\s+)?(?:river\s+)?((?-i:[A-Z])[\w-]*)\b", re.I),
     re.compile(r"\b(?:confluence|junction)\s+of\s+(?:the\s+)?(?:river\s+)?((?-i:[A-Z])[\w-]*)\s+with\s+(?:the\s+)?(?:river\s+)?((?-i:[A-Z])[\w-]*)\b", re.I),
+    # "Branch from the Ganges into the Kambyson Mouth", then further down
+    # its own delta, "Branch from the Kambyson River into the Mega
+    # Mouth", "Branch from the Mega Mouth into the Kamberichon Mouth" --
+    # a delta's own multi-level fork tree (confirmed book 7.1's own India
+    # delta catalogue), each link naming both the channel it forks *from*
+    # and the new one it forks *into*. Threading each fork point into
+    # both groups is what makes the tree actually connect end to end
+    # (Ganges -> Kambyson -> Mega -> Kamberichon) instead of four
+    # separate, disconnected 1-2 point fragments -- exactly the
+    # "fingers branching from a knudepunkt" shape historical Ptolemy
+    # maps draw for this same delta. The optional trailing "river"/
+    # "mouth" tolerates the name being followed by that noun before
+    # "into" (confirmed both "the Kambyson River into" and "the Mega
+    # Mouth into"). Distinguished from an unrelated boundary
+    # description's own "from X to Y" by "into" specifically -- that
+    # idiom never uses "into" (confirmed elsewhere in this file).
+    re.compile(
+        r"\bfrom\s+(?:the\s+)?((?-i:[A-Z])[\w-]*)(?:\s+(?:river|mouth))?"
+        r"\s+into\s+(?:the\s+)?((?-i:[A-Z])[\w-]*)\b",
+        re.I,
+    ),
 ]
 _MOUNTAIN_TEMPLATES = [
     re.compile(r"\bmt\.?\s+((?-i:[A-Z])[\w-]*)\b", re.I),

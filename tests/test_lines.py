@@ -251,6 +251,55 @@ def test_confluence_citation_links_tributary_into_the_main_river():
     assert confluence.id in rivers["Indus"].point_ids
 
 
+def test_branch_of_named_river_resolves_to_the_source_river():
+    # Confirmed §7.1.28: "Branch of the Indus towards Arachosia", "Branch
+    # from the Indus running towards Mt. Ouindion" -- a delta fork point
+    # named for its own source river only, no destination given. Without
+    # this template these citations had no name of their own at all, and
+    # silently inherited whatever unrelated river forward-fill happened
+    # to have active at that point in the document instead (confirmed:
+    # this exact idiom wrongly polluted the *Sandabal* river's own line
+    # with five Indus-only delta citations that immediately preceded it).
+    text = (
+        "§ 7.1.28  Branch of the Indus towards Arachosia 121°30' . 27°30'\n"
+        "Branch from the Indus running towards Mt. Ouindion 123°00' . 29°30'\n"
+    )
+    points, lines = _build(text)
+    rivers = [l for l in lines if l.kind == "river" and l.feature_name == "Indus"]
+    assert len(rivers) == 1
+    assert len(rivers[0].point_ids) == 2
+
+
+def test_branch_from_x_into_y_links_a_multi_level_delta_tree():
+    # Confirmed §7.1.29-30: a delta's own fork tree runs several links
+    # deep -- "Branch from the Ganges into the Kambyson Mouth", then
+    # further down its own delta, "Branch from the Kambyson River into
+    # the Mega Mouth", "Branch from the Mega Mouth into the Kamberichon
+    # Mouth". Each link names both the channel it forks *from* and the
+    # new one it forks *into*; threading each fork point into both
+    # groups is what makes Ganges -> Kambyson -> Mega -> Kamberichon
+    # connect end to end into one tree, the same "fingers branching from
+    # a knudepunkt" shape historical Ptolemy maps draw for this delta,
+    # instead of three separate, disconnected fragments.
+    text = (
+        "§ 7.1.29  Sources of the Ganges itself 136°00' . 37°00'\n\n\n"
+        "§ 7.1.30  Branch from the Ganges into the Kambyson Mouth 146°00' . 22°00'\n"
+        "Branch from the Kambyson River into the Mega Mouth 145°00' . 20°00'\n"
+        "Branch from the Mega Mouth into the Kamberichon Mouth 145°30' . 19°30'\n"
+    )
+    points, lines = _build(text)
+    rivers = {l.feature_name: l for l in lines if l.kind == "river"}
+    assert set(rivers) == {"Ganges", "Kambyson", "Mega"}
+    ganges_kambyson = next(p for p in points if p.name.startswith("Branch from the Ganges"))
+    kambyson_mega = next(p for p in points if p.name.startswith("Branch from the Kambyson"))
+    mega_kamberichon = next(p for p in points if p.name.startswith("Branch from the Mega"))
+    assert ganges_kambyson.id in rivers["Ganges"].point_ids
+    assert ganges_kambyson.id in rivers["Kambyson"].point_ids
+    assert kambyson_mega.id in rivers["Kambyson"].point_ids
+    assert kambyson_mega.id in rivers["Mega"].point_ids
+    assert mega_kamberichon.id in rivers["Mega"].point_ids
+
+
 def test_cities_along_the_river_lead_folds_bare_city_names_into_the_river():
     # Confirmed §3.10.5: "The following cities are along the Danube
     # river:" followed by bare city names carrying no river vocabulary of
