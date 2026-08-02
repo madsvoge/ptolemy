@@ -498,7 +498,14 @@ _RIVER_OPENING_WORD_RE = re.compile(_RIVER_MOUTH_WORD_RE.pattern + r"|" + _RIVER
 # _looks_like_river_continuation).
 _RIVER_CONTINUATION_VOCAB_RE = re.compile(
     r"\bturns?\b|\bbends?\b|\bsources?\b|\bsprings?\b|\bconfluence\b|\bjoins?\b|\bunites?\b"
-    r"|\bforks?\b|\bbifurcat\w*\b|\bsplits?\s+into\b|\bhead\s+of\b|\blakes?\b|\bdivert\w*\b|\briver\b",
+    r"|\bforks?\b|\bbifurcat\w*\b|\bsplits?\s+into\b|\blakes?\b|\bdivert\w*\b|\briver\b"
+    # "head of" is only river vocabulary when it actually says "river"
+    # (optionally with a name in between, "head of the Dorias river") --
+    # a bare "head of" alone also means the innermost point of a gulf/bay
+    # (confirmed §7.3.2's "head of Wild Beast Gulf", a real coastal
+    # point), and without this qualifier that got swept into the
+    # preceding river's own trail purely because "head of" matched.
+    r"|\bhead\s+of\s+(?:the\s+)?(?:[\w-]+\s+)?river\b",
     re.I,
 )
 # Hand-confirmed spelling variants between a river's own citation in one
