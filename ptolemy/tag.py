@@ -142,8 +142,19 @@ _RIVER_RE = re.compile(
 # default fallback below (see tag_point). Every other river idiom stays
 # eligible for that fallback (a turn, a delta branch, a mouth genuinely can
 # be the walk's next real waypoint); a source never can be, since it's
-# definitionally inland/upstream.
-_RIVER_SOURCE_RE = re.compile(r"\bsources?\b|\bsprings?\b", re.I)
+# definitionally inland/upstream. "Beginning of"/"head of" the river are
+# this text's other synonyms for the same idiom (confirmed the Peloponnese:
+# Eurotas's and Inachos's own sources, cited right after that same river's
+# mouth in an otherwise coastal walk -- same class of bug as the plain
+# "sources of" case, just missed by that narrower check). Scoped to
+# require the word "river" itself, not bare "head of" -- "head of Wild
+# Beast Gulf" (confirmed §7.3.2) is a real coastal point, a gulf's own
+# inner point, not a river source.
+_RIVER_SOURCE_RE = re.compile(
+    r"\bsources?\b|\bsprings?\b"
+    r"|\bbeginning\s+of\s+(?:the\s+)?river\b|\bhead\s+of\s+(?:the\s+)?(?:[\w-]+\s+)?river\b",
+    re.I,
+)
 # A handful of *generic, name-free* positional clauses Ptolemy uses to cite
 # a point along a river's course without repeating any river keyword at
 # all, relying purely on the reader following the sequence: "The turn
