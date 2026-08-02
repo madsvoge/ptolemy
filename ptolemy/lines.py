@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import math
 import re
 
-from .classify import COASTAL, ISLAND, is_named_island_walk, is_new_region_declaration, starts_new_named_island
+from .classify import COASTAL, ISLAND, is_named_island_walk, is_new_region_declaration, starts_new_coastal_arc, starts_new_named_island
 from .parser import Section
 from .points import Point
 from .tag import RESTATED_LANDMARK_RE
@@ -62,12 +62,14 @@ def build_citation_streams(sections: list[Section], occurrence_index: dict[tuple
     """Every citation, in document order, grouped by book.map, and within
     that further split into segments at each is_new_region_declaration
     section (confirmed §3.14.25, "Position of the Peloponnesos", mid
-    book.map 3.14) -- almost always just one segment per book.map, but two
-    genuinely separate landmasses catalogued under the same book.map must
-    never have their coastlines bridged by build_coastlines' own greedy
-    distance-based stitching just because book.map scoping alone doesn't
-    separate them. Each segment entry is (section_key, Point, this
-    citation's own raw name_phrase)."""
+    book.map 3.14) or starts_new_coastal_arc citation (confirmed §3.11.3,
+    "the description is the following: After Mesembria...") -- almost
+    always just one segment per book.map, but two genuinely separate
+    coastal arcs catalogued under the same book.map must never have their
+    coastlines bridged by build_coastlines' own greedy distance-based
+    stitching just because book.map scoping alone doesn't separate them.
+    Each segment entry is (section_key, Point, this citation's own raw
+    name_phrase)."""
     streams: dict[str, list[list[tuple[str, Point, str]]]] = {}
     for section in sections:
         segments = streams.setdefault(section.book_map, [[]])
@@ -75,6 +77,8 @@ def build_citation_streams(sections: list[Section], occurrence_index: dict[tuple
             segments.append([])
         for citation in section.citations:
             point = occurrence_index[(section.key, citation.char_offset)]
+            if starts_new_coastal_arc(citation.name_phrase) and segments[-1]:
+                segments.append([])
             segments[-1].append((section.key, point, citation.name_phrase))
     return streams
 

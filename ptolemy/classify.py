@@ -370,6 +370,44 @@ def starts_new_named_island(name_phrase: str) -> bool:
 # point back to the Peloponnese's own last point) trail.
 _NEW_REGION_LEAD_RE = re.compile(r"^position\s+of\b", re.I)
 
+# The same "hard break, don't stitch across this" signal, but for a new
+# *coastal side* of the same region rather than a whole new region --
+# "On the north it is bounded by a part of the Euxine Pontos, which is
+# thus described: after the mouth of the Pontos and the sanctuary of
+# Artemis..." (confirmed §5.1.5, Bithynia). Bithynia's own coast runs two
+# separate directions from the same Bosporos-mouth starting point (west
+# along the Propontis/gulf side, §5.1.2-5.1.4; north along the Black Sea
+# side, §5.1.5-5.1.7) -- the second arc's own lead restates that shared
+# starting landmark ("the sanctuary of Artemis", already cited as "Hieron
+# of Artemis" in §5.1.2) purely for orientation, the same hand-off idiom
+# as "Position of X", just without a fresh citation of its own attached
+# to it. Without the split, the Propontis arc's own end (inland, up the
+# Ryndakos river to its sources) connected directly to the Black Sea arc's
+# start (confirmed P3523/P3525), a nonsensical jump across the whole
+# Bithynian peninsula.
+_NEW_COASTAL_SIDE_LEAD_RE = re.compile(r"\bwhich\s+is\s+thus\s+described\s*:\s*after\b", re.I)
+
 
 def is_new_region_declaration(section: Section) -> bool:
-    return bool(_NEW_REGION_LEAD_RE.search(section.lead_text))
+    return bool(_NEW_REGION_LEAD_RE.search(section.lead_text)) or bool(_NEW_COASTAL_SIDE_LEAD_RE.search(section.lead_text))
+
+
+# A third variant of the same hand-off idiom, except this one sits inside
+# a *citation's own name_phrase* rather than a section's lead_text --
+# "...by the onward shores of Pontos until the border with lower Moesia,
+# at [COORD]\nFrom which border the description is the following: After
+# Mesembria of Moesia, Anchialos [COORD]" (confirmed §3.11.3, Thrace).
+# Thrace's own coast, like Bithynia's, runs two separate directions from
+# its Bosporos-mouth boundary (the Aegean side, §3.11.2, and the Black Sea
+# side starting at Mesembria here) -- the boundary citation itself is
+# already excluded from the walk (it matches _REFERENCE_MARKER_RE's
+# "until the border"), but skipping just that one citation isn't enough:
+# without a hard break, the points on *either side* of it still stitched
+# straight across the gap (confirmed P1972/P1974, the Aegean coast's own
+# last point connecting directly to the Black Sea coast's own first,
+# skipping the whole Bosporos peninsula between them).
+_NEW_COASTAL_ARC_PHRASE_RE = re.compile(r"\bdescription\s+is\s+the\s+following\s*:\s*after\b", re.I)
+
+
+def starts_new_coastal_arc(name_phrase: str) -> bool:
+    return bool(_NEW_COASTAL_ARC_PHRASE_RE.search(name_phrase))

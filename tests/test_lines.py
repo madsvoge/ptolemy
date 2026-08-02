@@ -78,6 +78,67 @@ def test_coastal_walk_ignores_a_points_own_restated_boundary_occurrence():
     assert trail.point_ids[-1] == dourius.id
 
 
+def test_new_coastal_side_lead_splits_the_coastal_walk():
+    # Confirmed §5.1.5, Bithynia: the region's coast runs two separate
+    # directions from the same Bosporos-mouth starting point (west along
+    # the Propontis/gulf side, then -- restated via "which is thus
+    # described: after..." -- north along the Black Sea side). Without
+    # splitting there, the Propontis arc's own inland end (up a river to
+    # its sources) connected straight to the Black Sea arc's own start, a
+    # nonsensical jump across the whole peninsula (confirmed P3523/P3525).
+    text = (
+        "§ 5.1.2  The promontory of Bithynia at the mouth of the Pontos, on which are:\n"
+        "Hieron of Artemis 56°25' . 43°20'\n"
+        "Chalkedon 56°05' . 43°05'\n\n\n"
+        "§ 5.1.4  Posideion promontory 56°10' . 42°25'\n"
+        "mouth of the Ryndakos river 56°20' . 41°45'\n\n\n"
+        "§ 5.1.5  On the north it is bounded by a part of the Euxine "
+        "Pontos, which is thus described: after the mouth of the Pontos "
+        "and the sanctuary of Artemis\n"
+        "Bithynian promontory 56°45' . 43°20'\n"
+        "Artake kome 57°00' . 43°05'\n"
+    )
+    points, lines = _build(text)
+    coastlines = [l for l in lines if l.kind == "coastline"]
+    assert len(coastlines) == 2
+    point_by_id = {p.id: p for p in points}
+    names_by_trail = [{point_by_id[pid].name for pid in l.point_ids} for l in coastlines]
+    propontis = next(n for n in names_by_trail if "Chalkedon" in n)
+    black_sea = next(n for n in names_by_trail if n is not propontis)
+    assert "mouth of the Ryndakos river" in propontis
+    assert "Artake kome" not in propontis
+    assert "Bithynian promontory" in black_sea
+
+
+def test_new_coastal_arc_citation_phrase_splits_the_coastal_walk():
+    # Confirmed §3.11.3, Thrace: the region's coast, like Bithynia's, runs
+    # two separate directions from its own Bosporos-mouth boundary -- the
+    # boundary citation itself ("...until the border with lower Moesia")
+    # is already excluded from the walk as a reference marker, but the
+    # points on *either side* of it still stitched straight across the
+    # gap without a hard break there (confirmed P1972/P1974, skipping the
+    # whole Bosporos peninsula between the Aegean and Black Sea coasts).
+    text = (
+        "§ 3.11.2  Nestos river mouth 51°45' . 41°45'\n"
+        "border of Chersonesos on Propontis 53°17' . 41°50'\n\n\n"
+        "§ 3.11.3  On the east by the Propontis and the mouth of Pontos, "
+        "called the Thracian Bosporos, and by the onward shores of Pontos "
+        "until the border with lower Moesia, at 55°00' . 44°40'\n"
+        "From which border the description is the following: After "
+        "Mesembria of Moesia, Anchialos 54°25' . 44°30'\n"
+        "Apollonia 54°30' . 44°15'\n"
+    )
+    points, lines = _build(text)
+    coastlines = [l for l in lines if l.kind == "coastline"]
+    assert len(coastlines) == 2
+    point_by_id = {p.id: p for p in points}
+    names_by_trail = [{point_by_id[pid].name for pid in l.point_ids} for l in coastlines]
+    aegean = next(n for n in names_by_trail if "border of Chersonesos on Propontis" in n)
+    black_sea = next(n for n in names_by_trail if n is not aegean)
+    assert "Mesembria of Moesia, Anchialos" not in aegean
+    assert "Mesembria of Moesia, Anchialos" in black_sea
+
+
 def test_mid_book_map_region_declaration_splits_the_coastal_walk():
     # Confirmed §3.14.25, "Position of the Peloponnesos": Ptolemy's own
     # Achaia map (book.map 3.14) covers both mainland Greece and the
