@@ -187,7 +187,13 @@ def dedup_points(sections: list[Section], tol: float = DEDUP_TOLERANCE_DEG) -> l
     close (the same guard the line-building step needs later).
     """
     by_book_map: dict[str, list[Point]] = {}
-    next_id = 0
+    # A point's id is Book.Map.Section.NumberInSection, anchored to its
+    # *first* citation's own section (later occurrences elsewhere just
+    # merge into it -- see the dedup match lookup below, which isn't
+    # section-scoped). NumberInSection is that section's own count of
+    # newly-created points, in citation order, so this counter is keyed
+    # per section, not per book_map.
+    section_point_count: dict[str, int] = {}
     for section in sections:
         for citation in section.citations:
             bucket = by_book_map.setdefault(section.book_map, [])
@@ -205,9 +211,10 @@ def dedup_points(sections: list[Section], tol: float = DEDUP_TOLERANCE_DEG) -> l
                 south=citation.south,
             )
             if match is None:
-                next_id += 1
+                section_point_count[section.key] = section_point_count.get(section.key, 0) + 1
+                ordinal = section_point_count[section.key]
                 match = Point(
-                    id=f"P{next_id}",
+                    id=f"{section.book}.{section.map}.{section.section:02d}.{ordinal:02d}",
                     lon_ferro=citation.lon_ferro,
                     lat_ferro=citation.lat_ferro,
                     book_map=section.book_map,

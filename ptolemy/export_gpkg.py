@@ -97,14 +97,17 @@ def build_line_layers(lines: list[Line], point_by_id: dict[str, Point]) -> dict[
 def _point_row(p: Point, resolved: dict[str, str]) -> dict:
     row = {
         "id": p.id,
-        # p.id is a plain "P<n>" sequence number assigned in document order
-        # by dedup_points -- it shifts if any citation earlier in the text
-        # is added, removed, or merges differently on a future run, so it
-        # can't be used to track "the same point" across regenerations
-        # (e.g. to cross-reference a QA note written against an older
-        # export). stable_id doesn't have that problem: it's the point's
-        # first citation's own (section_key, char_offset) -- or, for a
-        # manually added point with no citation of its own, its
+        # p.id is "Book.Map.Section.NumberInSection" (e.g. "5.19.03.08"),
+        # anchored to the point's *first* citation's own section --
+        # NumberInSection is assigned by dedup_points in citation order
+        # within that section. It's far more stable than a whole-document
+        # sequence number, but it still shifts if a citation earlier in
+        # the *same section* is added, removed, or merges differently on a
+        # future run, so it can't be used to track "the same point" across
+        # regenerations (e.g. to cross-reference a QA note written against
+        # an older export). stable_id doesn't have that problem: it's the
+        # point's first citation's own (section_key, char_offset) -- or,
+        # for a manually added point with no citation of its own, its
         # committed CSV key (see overrides.override_key_for_point) --
         # neither of which moves just because an unrelated point elsewhere
         # in the document was added or removed.
