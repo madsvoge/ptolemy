@@ -419,7 +419,9 @@ _RIVER_NAME_STOPWORDS = {
 # extended to any of their delta's real mouth citations.
 _RIVER_MOUTH_NAME_RE = re.compile(r"(?i:mouths?)\s+of\s+(?i:the\s+)?(?i:river\s+)?([A-Z][\w-]*)")
 _RIVER_NAME_TEMPLATES = [
-    re.compile(r"(?i:sources?|springs?)\s+of\s+(?i:the\s+)?(?i:river\s+)?([A-Z][\w-]*)"),
+    # "headwaters" is this text's other synonym for "sources" (confirmed
+    # §2.10.4: "the headwaters of the Druentia at").
+    re.compile(r"(?i:sources?|springs?|headwaters?)\s+of\s+(?i:the\s+)?(?i:river\s+)?([A-Z][\w-]*)"),
     _RIVER_MOUTH_NAME_RE,
     # "The fork of the Rhabon river..." -- a boundary line that traces a
     # river's own fork/bend points (confirmed §3.8.1, Dacia's boundary
@@ -445,6 +447,9 @@ _RIVER_NAME_TEMPLATES = [
 ]
 _RIVER_DUAL_TEMPLATES = [
     re.compile(r"(?i:confluence|junction)\s+of\s+(?:the\s+)?([A-Z][\w-]*)\s+and\s+(?:the\s+)?([A-Z][\w-]*)"),
+    # "the confluence of the Isar with the Rhodanus" -- the same idiom,
+    # connected with "with" instead of "and" (confirmed §2.10.4).
+    re.compile(r"(?i:confluence|junction)\s+of\s+(?:the\s+)?([A-Z][\w-]*)\s+with\s+(?:the\s+)?([A-Z][\w-]*)"),
     # "the Hermos and the Paktolos rivers unite" -- the reverse word order
     # of the "confluence of A and B" template above (confirmed §5.2.6).
     re.compile(r"([A-Z][\w-]*)\s+and\s+(?:the\s+)?([A-Z][\w-]*)\s+(?i:rivers?)?\s*(?i:unite\w*)"),
@@ -491,7 +496,18 @@ _RIVER_MOUTH_WORD_RE = re.compile(
 # downstream end, so it's kept separate from _RIVER_MOUTH_WORD_RE rather
 # than folded into it.
 _RIVER_FORK_WORD_RE = re.compile(r"\bforks?\s+of\b", re.I)
-_RIVER_OPENING_WORD_RE = re.compile(_RIVER_MOUTH_WORD_RE.pattern + r"|" + _RIVER_FORK_WORD_RE.pattern, re.I)
+# A river's own *source* is just as unambiguous an opening idiom outside a
+# RIVER section as its mouth or fork -- confirmed missed on §2.10.4 (the
+# Isar/Druentia, two Alpine tributaries of the Rhodanus given entirely
+# within an ordinary COASTAL section): "sources of the Isar" was correctly
+# extracting the name "Isar" already, but the opening gate only ever
+# recognized mouth/fork, so this whole section -- both tributaries'
+# sources, headwaters, and their confluences with the Rhodanus -- was
+# silently dropped rather than connected.
+_RIVER_SOURCE_WORD_RE = re.compile(r"\bsources?\b|\bsprings?\b|\bheadwaters?\b", re.I)
+_RIVER_OPENING_WORD_RE = re.compile(
+    _RIVER_MOUTH_WORD_RE.pattern + r"|" + _RIVER_FORK_WORD_RE.pattern + r"|" + _RIVER_SOURCE_WORD_RE.pattern, re.I,
+)
 # A citation with no name of its own is only trusted as a continuation if
 # it carries this vocabulary *or* doesn't read as its own fresh
 # proper-noun citation to begin with (see the capitalisation check in
