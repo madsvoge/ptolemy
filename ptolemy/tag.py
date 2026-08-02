@@ -42,13 +42,21 @@ _RIVER_MOUTH_RE = re.compile(
     re.I,
 )
 _RIVER_RE = re.compile(
-    r"\bsources?\b|\bspring\b|\bbends?\b|\bconfluence\b|\bforks?\b|\bbranch(?:es)?\b"
+    r"\bsources?\b|\bsprings?\b|\bbends?\b|\bconfluence\b|\bforks?\b|\bbranch\w*\b"
     r"|\bjunctions?\b|\bbifurcat\w*\b|\bunites?\b|\bunion\b"
     # "flows into", "joins (with)", "splits into" -- a tributary meeting or
     # leaving its main river, and "turn(s)"/"bend(s)" of *the river*
     # specifically (as opposed to an ambiguous bare "turn towards the
     # east", handled separately below via its neighbours in the stream).
     r"|\bflows?\s+into\b|\bjoins?\b|\bsplits?\s+into\b"
+    # "From the Sagapa into the Indus", "from the Ganges into the
+    # Kambyson" -- a delta distributary named by its own two endpoints,
+    # without repeating "branch"/"mouth" the way its own sibling citations
+    # in the same list do (confirmed §7.1.28's Indus delta and §7.1.29-30's
+    # Ganges delta). Two capitalized names either side of "into" is what
+    # distinguishes this from an unrelated boundary-description "from X to
+    # Y" (that idiom never uses "into", only "to").
+    r"|\bfrom\s+the\s+[A-Z]\w*\s+into\s+the\s+[A-Z]\w*\b"
     # "The one through Babylon connects at COORD" -- another river-joining
     # synonym (confirmed §5.20.2, a tributary of the Euphrates). Deliberately
     # "connects at" specifically, not bare "connects?": "connect" alone has
@@ -207,13 +215,20 @@ RESTATED_LANDMARK_RE = re.compile(
 )
 # "Branch of/from the Indus into the Sagapa mouth" names a distributary
 # *joining another named channel upstream in a delta* -- the coordinate is
-# an inland branch point, not the actual coastline. Confirmed on the
+# an inland branch/fork point, not the actual coastline. Confirmed on the
 # Indus (§7.1.28), matching the same delta structure already found on the
-# Ganges (§7.1.29-30) and Nile: threading these into the coastal walk
-# alongside the delta's real, separately-cited coastal mouths (§7.1.2's
-# "the seven mouths of the [river]") draws two near-parallel tracks along
-# the same stretch of coast ("duplicate coastline").
-_DISTRIBUTARY_BRANCH_RE = re.compile(r"\bbranch(?:es)?\b", re.I)
+# Ganges (§7.1.29-30) and the Nile (§4.5.39-44, "The so-called Great Delta
+# begins where the Agathodaimon branches off...", "...river splits into
+# the Bousiritikos river...", "...the branching of the Taly river is
+# at..."): threading these into the coastal walk alongside the delta's
+# real, separately-cited coastal mouths (§7.1.2's "the seven mouths of the
+# [river]", §4.5.10's "the seven mouths of the Nile") draws two
+# near-parallel tracks along the same stretch of coast ("duplicate
+# coastline"). "branch\w*" (not just "branch(es)") catches "branching" too
+# -- confirmed §4.5.43, where the exact-word-boundary version missed it.
+_DISTRIBUTARY_BRANCH_RE = re.compile(
+    r"\bbranch\w*\b|\bsplits?\s+into\b|\bforks?\s+into\b|\bdelta\b", re.I
+)
 
 
 def _last_match_start(pattern: re.Pattern, text: str) -> int:

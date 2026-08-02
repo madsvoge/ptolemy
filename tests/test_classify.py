@@ -79,6 +79,46 @@ def test_common_boundary_lead_is_classified_boundary_not_coastal():
     assert resolved[sections[0].key] == BOUNDARY
 
 
+def test_cities_qualifier_are_colon_is_classified_inland():
+    # Confirmed §5.7.2, "Cities on the Euphrates are:\nSinibra ." -- the
+    # weak-tier "cities are:" pattern required direct adjacency between
+    # the noun and "are:", so a qualifier phrase in between ("on the
+    # Euphrates") meant this had no signal of its own and fell through to
+    # a stale inherited COASTAL type.
+    text = "§ 5.7.2  Cities on the Euphrates are:\nSinibra . 60°00' . 37°00'\n"
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == INLAND
+
+
+def test_single_citation_boundary_declaration_is_classified_boundary():
+    # Confirmed §5.20.1, Babylonia: "...along the remaining parts of the
+    # Tigris river as far as its outflows into the Persian Gulf at COORD"
+    # is the section's *only* citation, matching both _BOUNDARY_RE
+    # ("bounded... by...") and the coastal point-cue check ("gulf") --
+    # and coastal_hits, checked first, always won before this.
+    text = (
+        "§ 5.20.1  Babylonia is bounded on the north by Mesopotamia along "
+        "the Euphrates river, on the east by Susiana along the Tigris "
+        "river as far as its outflows into the Persian Gulf at 79°00' . 32°30'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == BOUNDARY
+
+
+def test_single_citation_boundary_rule_does_not_swallow_a_real_coastal_walk():
+    # The single-citation-boundary override above must stay scoped to a
+    # section with *only* that one citation -- a boundary-declaration
+    # lead followed by several real coastal points (confirmed §2.7.1,
+    # §3.5.1 corpus-wide) must still resolve COASTAL.
+    text = (
+        "§ 2.7.1  Aquitania is bounded on the north by the Ocean.\n"
+        "Promontory A 10°00' . 50°00'\n"
+        "Promontory B 11°00' . 50°10'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == COASTAL
+
+
 def test_bare_hinterland_mention_in_boundary_prose_does_not_misclassify():
     # "hinterland" naming the interior in passing, within a sentence whose
     # own list-intro cue is "the shore is as follows" (confirmed §3.10.7),

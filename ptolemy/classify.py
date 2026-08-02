@@ -192,8 +192,12 @@ _INLAND_WEAK_RE = re.compile(
     # "their towns are:" -- confirmed §5.9.16 ("...the Iaxamatai people.
     # The cities are:") and several tribal-town idioms elsewhere ("whose
     # towns are:", "whose cities are:") that don't use "its" the way the
-    # two dedicated patterns above already cover.
-    r"|\b(?:towns|cities|villages|komai)\s+are:",
+    # two dedicated patterns above already cover. A short qualifier phrase
+    # can sit between the noun and "are:" too -- "Cities on the Euphrates
+    # are:" (confirmed §5.7.2, which had no signal of its own at all and
+    # fell through to a stale inherited COASTAL type without this) --
+    # bounded so it doesn't reach across an unrelated sentence boundary.
+    r"|\b(?:towns|cities|villages|komai)\b[^.\n:]{0,50}\bare:",
     re.I,
 )
 
@@ -286,9 +290,36 @@ def _own_signal(section: Section) -> str | None:
         if coastal_hits and coastal_hits >= len(section.citations) / 2:
             return COASTAL
         return INLAND
+    # A region's own opening boundary declaration is routinely its
+    # section's *only* citation, restating the boundary line's own
+    # endpoint (a river mouth, a gulf, a sea) as the coordinate --
+    # confirmed §5.20.1, Babylonia: "...on the east by Susiana along the
+    # remaining parts of the Tigris river as far as its outflows into the
+    # Persian Gulf at COORD" is one citation, matching _BOUNDARY_RE
+    # ("bounded... by...") and _COASTAL_POINT_RE ("gulf") both at once --
+    # and the coastal_hits check below, being checked first, otherwise
+    # always wins. Scoped tightly to a *single*-citation section: once a
+    # section goes on to cite several more, real coastal points (confirmed
+    # distinct from this, e.g. §2.7.1, §3.5.1: a boundary-declaration lead
+    # followed by a genuine multi-point coastal walk), this section-wide
+    # override would wrongly swallow them too.
+    if len(section.citations) == 1 and _BOUNDARY_RE.search(lead):
+        return BOUNDARY
     if coastal_hits:
         return COASTAL
     if _BOUNDARY_RE.search(lead):
+        return BOUNDARY
+    # A section can open with a boundary-line citation whose own lead
+    # doesn't reach "bounded"/"bordered" yet (confirmed §5.2.12: "On the
+    # east by Lykia, from the point after Kaunos to COORD" -- the word
+    # "bounded" only shows up in the *next* citation, "...it is bounded by
+    # Milyas..."). With zero coastal_hits already established above (no
+    # citation in this section names a promontory/cape/mouth/... either),
+    # a boundary word anywhere in the section's own citations is as
+    # trustworthy a last-resort signal as the lead-only check just above,
+    # and without it this fell through to a stale inherited COASTAL type
+    # from the unrelated coastal section before it.
+    if section.citations and any(_BOUNDARY_RE.search(c.name_phrase) for c in section.citations):
         return BOUNDARY
     return None
 

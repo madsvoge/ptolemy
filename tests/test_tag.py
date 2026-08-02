@@ -39,6 +39,55 @@ def test_promontory_tagged_coast():
     assert points["Boreum promontory"].tags == {"coast"}
 
 
+def test_plural_springs_is_tagged_river():
+    # Confirmed P5360/P5393: "springs of the river"/"Springs of the
+    # Maxeras" -- _RIVER_RE only had the singular "spring", missing the
+    # plural Ptolemy actually uses here.
+    text = "§ 6.9.2  A description of the coast\nsprings of the Maxeras river . 60°00' . 44°00'\n"
+    points = _tagged_points(text)
+    p = next(iter(points.values()))
+    assert "river" in p.tags
+    assert "coast" not in p.tags
+
+
+def test_delta_distributary_named_by_two_endpoints_is_tagged_river():
+    # Confirmed P5761, §7.1.28: "From the Sagapa into the Indus" -- a
+    # delta channel named by its own two endpoints, without repeating
+    # "branch"/"mouth" the way its sibling citations in the same list do.
+    text = "§ 7.1.28  A description of the coast\nFrom the Sagapa into the Indus . 60°00' . 44°00'\n"
+    points = _tagged_points(text)
+    p = next(iter(points.values()))
+    assert p.tags == {"river"}
+
+
+def test_branching_verb_form_is_tagged_river():
+    # Confirmed P3193, §4.5.43 (Nile delta): "the branching of the Taly
+    # river is at" -- _RIVER_RE's old "branch(es)?" exact-word-boundary
+    # form missed the "-ing" verb form.
+    text = "§ 4.5.43  A description of the coast\nthe branching of the Taly river is at . 61°00' . 30°50'\n"
+    points = _tagged_points(text)
+    p = next(iter(points.values()))
+    assert "river" in p.tags
+
+
+def test_delta_fork_river_mouth_does_not_also_get_coast_tag():
+    # Confirmed P3190, §4.5.40 (Nile delta): "the Boubastiakos river
+    # splits into the Bousiritikos river, which flows out through the
+    # Pathmitic mouth" -- an inland delta fork, not a real coastline
+    # point, even though it carries a 'mouth' word like a genuine coastal
+    # river mouth would. The old _DISTRIBUTARY_BRANCH_RE only recognized
+    # the literal word "branch", missing "splits into"/"delta".
+    text = (
+        "§ 4.5.40  A description of the coast\n"
+        "The so-called Little Delta is where the Boubastiakos river "
+        "splits into the Bousiritikos river, which flows out through the "
+        "Pathmitic mouth, position of which is . 62°40' . 30°20'\n"
+    )
+    points = _tagged_points(text)
+    p = next(iter(points.values()))
+    assert p.tags == {"river_mouth"}
+
+
 def test_harbor_in_coastal_section_gets_both_tags():
     # A harbor cited as an ordinary waypoint in a coastal walk is a real
     # point on that coastline, not just a harbor feature -- confirmed
