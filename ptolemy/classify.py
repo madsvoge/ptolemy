@@ -499,3 +499,27 @@ def river_bank_city_lead_name(section: Section) -> str | None:
     if not noun_match or not are_match or noun_match.start() > are_match.start():
         return None
     return along_match.group(1)
+
+
+# A delta's own mouths are routinely catalogued under a heading that names
+# the river once and never again -- "The seven mouths of the Nile:"
+# (confirmed §4.5.10), "Mouths of the Ganges." (§7.1.18) -- with every
+# individual citation below it named only for its own branch ("the
+# Bolbitine mouth", "the Kambyson mouth, the most western"), carrying no
+# occurrence of the river's own name at all. lines.py uses this only to
+# *seed* a river name for the section (never to blanket-fold every
+# citation in it regardless of content, the way river_bank_city_lead_name
+# does) -- an ordinary single-citation lead of the same shape ("mouth of
+# the Sangarios river", §5.1.6) is followed by *unrelated* plain coastal
+# cities just as often as it's followed by more of the same river's own
+# citations, so only a citation that independently carries its own river
+# vocabulary (tag.py's 'river'/'river_mouth') ever inherits this seed.
+_RIVER_DELTA_LEAD_RE = re.compile(
+    r"^(?:the\s+)?(?:\w+\s+)?mouths?\s+of\s+(?:the\s+)?((?-i:[A-Z])[\w-]*)\b",
+    re.I,
+)
+
+
+def river_delta_lead_name(section: Section) -> str | None:
+    m = _RIVER_DELTA_LEAD_RE.match(section.lead_text.strip())
+    return m.group(1) if m else None

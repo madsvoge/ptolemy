@@ -12,7 +12,7 @@ from dataclasses import dataclass
 
 from shapely.geometry import LineString as ShapelyLineString
 
-from .classify import COASTAL, ISLAND, is_named_island_walk, is_new_region_declaration, river_bank_city_lead_name, starts_new_coastal_arc, starts_new_named_island
+from .classify import COASTAL, ISLAND, is_named_island_walk, is_new_region_declaration, river_bank_city_lead_name, river_delta_lead_name, starts_new_coastal_arc, starts_new_named_island
 from .parser import Section
 from .points import Point
 from .tag import RESTATED_LANDMARK_RE
@@ -480,15 +480,24 @@ def _build_named_feature_lines(
     runs_by_name: dict[str, list[list[Point]]] = {}
     for (_book_map, name_key), group_points in groups.items():
         group_points = sorted(group_points, key=lambda p: p.first_char_offset)
-        # A name's own override cap (if any) already applies within a
-        # single book_map too, not just across the boundary below -- e.g.
-        # the Indus's own sources-to-delta spread, all cited inside 7.1
-        # alone, exceeds the default cap just as much as the Danube's
-        # cross-book_map spread does, and document order is exactly as
-        # trustworthy here as it is for every other in-book_map trail.
-        split_cap = cross_book_map_caps.get(name_key, cap)
+        # Always split at the shared *default* cap first, even for a name
+        # with its own wider override -- document order is only trustworthy
+        # up to that default distance. A name's own runs beyond that
+        # (whether the gap sits inside one book_map, like the Indus's own
+        # sources-to-delta spread, or crosses a book_map boundary, like the
+        # Danube's) are only ever bridged by the nearest-endpoint,
+        # crossing-checked stitch below -- never by widening this initial,
+        # document-order split itself. Confirmed necessary: forward-filling
+        # the Danube's own tributary-junction citations ("point at the bend
+        # of the river flowing...") into 2.11's group put them right before
+        # that book_map's *separate* "towns along the Danube" list in
+        # document order but nowhere near it geographically (14+ degrees
+        # apart) -- splitting *that* jump at the wider override cap too
+        # produced a real self-crossing that nearest-endpoint stitching
+        # doesn't have, because it isn't limited to trying only the two
+        # runs' raw document-order ends.
         runs_by_name.setdefault(name_key, []).extend(
-            _split_into_runs(group_points, split_cap, keep_singletons=name_key in cross_book_map_caps)
+            _split_into_runs(group_points, cap, keep_singletons=name_key in cross_book_map_caps)
         )
 
     lines: list[Line] = []
@@ -541,6 +550,64 @@ def _load_river_long_course_caps(path: str = RIVER_LONG_COURSE_PATH) -> dict[str
         return {row["canonical"].lower(): float(row["cap_deg"]) for row in csv.DictReader(f)}
 
 
+def _river_forward_fill(points: list[Point], sections: list[Section], aliases: dict[str, str]) -> dict[str, str]:
+    """point.id -> an inherited river name, for a citation that carries its
+    own river vocabulary (tag.py's 'river'/'river_mouth') but names no
+    river of its own -- inherited from the most recently *explicitly*
+    named river earlier in the same book_map's document order.
+
+    Confirmed §5.1.6: "mouth of the Sangarios river" names the river, then
+    "first turn of the river", "second turn", "third turn", "river
+    sources" carry the river tag but never repeat "Sangarios" -- anaphoric
+    continuation of the same citation, not a fresh, differently-named one.
+    Also how a delta's own mouths ever connect at all: river_delta_lead_name
+    seeds the name from the section's own heading ("The seven mouths of
+    the Nile:", confirmed §4.5.10), since none of the individual mouth
+    citations below it ("the Bolbitine mouth") name the river either.
+    And how the Danube's own multi-section delta connects (confirmed
+    §3.10.1's "...the Danube, here called Istros, until the mouth..."
+    followed by §3.10.2's "The order of the mouths is as follows:", a
+    heading with no river name of its own at all, relying entirely on the
+    prior section already having named it) -- deliberately *not* reset at
+    every section boundary, only at a book_map boundary, since Ptolemy's
+    own delta descriptions routinely run on across several short sections.
+
+    Every one of these still only fires onto a point that independently
+    carries the river tag -- a plain coastal city with no river vocabulary
+    of its own (confirmed §7.1.18's "Poloura, a town", sitting between two
+    named Ganges mouths) never inherits a name this way, so the resulting
+    line stays a simple, finger-like set of real mouths/turns/sources
+    rather than sweeping in every incidental nearby place."""
+    delta_seed: dict[str, str] = {}
+    for section in sections:
+        name = river_delta_lead_name(section)
+        if name:
+            delta_seed[section.key] = name
+
+    ordered = sorted(points, key=lambda p: p.first_char_offset)
+    fills: dict[str, str] = {}
+    current_book_map: str | None = None
+    current_section: str | None = None
+    current_name: str | None = None
+    for p in ordered:
+        if not p.occurrences:
+            continue
+        section_key = p.occurrences[0].section_key
+        if p.book_map != current_book_map:
+            current_book_map = p.book_map
+            current_name = None
+        if section_key != current_section:
+            current_section = section_key
+            if section_key in delta_seed:
+                current_name = delta_seed[section_key]
+        own_names = river_base_names(p)
+        if own_names:
+            current_name = aliases.get(own_names[-1].lower(), own_names[-1])
+        elif current_name is not None and ("river" in p.tags or "river_mouth" in p.tags):
+            fills[p.id] = current_name
+    return fills
+
+
 def build_rivers(
     points: list[Point],
     sections: list[Section],
@@ -563,12 +630,16 @@ def build_rivers(
     if aliases is None:
         aliases = _load_river_aliases()
 
+    forward_fill = _river_forward_fill(points, sections, aliases)
+
     def names_fn(p: Point) -> list[str]:
         names = river_base_names(p)
         for o in p.occurrences:
             hint = bank_city_rivers.get(o.section_key)
             if hint and hint not in names:
                 names = names + [hint]
+        if not names and p.id in forward_fill:
+            names = [forward_fill[p.id]]
         return [aliases.get(n.lower(), n) for n in names]
 
     river_points = [

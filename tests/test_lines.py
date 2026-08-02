@@ -286,6 +286,80 @@ def test_tribal_aside_naming_a_river_in_passing_does_not_fold_its_cities_in():
     assert rivers == []
 
 
+def test_delta_mouths_heading_seeds_the_river_name_for_unnamed_mouth_citations():
+    # Confirmed §4.5.10 ("The seven mouths of the Nile:") and §7.1.18
+    # ("Mouths of the Ganges."): every individual mouth citation below the
+    # heading names only its own branch ("the Bolbitine mouth"), never the
+    # river itself -- point-level river_base_names can never resolve them
+    # on their own. The section's own heading is the only place the link
+    # exists.
+    text = (
+        "§ 4.5.10  The seven mouths of the Pyramos:\n"
+        "the first mouth 40°00' . 30°00'\n"
+        "the second mouth 40°10' . 30°00'\n"
+    )
+    points, lines = _build(text)
+    rivers = [l for l in lines if l.kind == "river" and l.feature_name == "Pyramos"]
+    assert len(rivers) == 1
+    assert len(rivers[0].point_ids) == 2
+
+
+def test_delta_mouths_heading_does_not_fold_in_an_interspersed_plain_city():
+    # Confirmed §7.1.18: "Poloura, a town" sits between two named Ganges
+    # mouths but carries no river vocabulary of its own -- unlike a real
+    # "cities are along the river" list (river_bank_city_lead_name), a
+    # bare delta heading only ever seeds a name for citations that
+    # independently carry the river tag, keeping the resulting line a
+    # simple, finger-like set of real mouths rather than sweeping in every
+    # incidental nearby place.
+    text = (
+        "§ 7.1.18  Mouths of the Pyramos.\n"
+        "the first mouth 40°00' . 30°00'\n"
+        "Somecity, a town 40°05' . 30°00'\n"
+        "the second mouth 40°10' . 30°00'\n"
+    )
+    points, lines = _build(text)
+    rivers = [l for l in lines if l.kind == "river" and l.feature_name == "Pyramos"]
+    assert len(rivers) == 1
+    somecity = next(p for p in points if p.name.startswith("Somecity"))
+    assert somecity.id not in rivers[0].point_ids
+
+
+def test_anaphoric_turn_and_sources_inherit_the_sections_own_named_mouth():
+    # Confirmed §5.1.6: "mouth of the Sangarios river" names the river
+    # once, then "first turn of the river", "second turn", "third turn",
+    # "river sources" carry the river tag (tag.py's own turn/source
+    # detection) but never repeat "Sangarios" -- anaphoric continuation of
+    # the same citation, not a fresh, differently-named one.
+    text = (
+        "§ 5.1.6  mouth of the Sangarios river 58°00' . 42°45'\n"
+        "first turn of the river 58°10' . 42°40'\n"
+        "river sources 58°20' . 42°30'\n"
+    )
+    points, lines = _build(text)
+    rivers = [l for l in lines if l.kind == "river" and l.feature_name == "Sangarios"]
+    assert len(rivers) == 1
+    assert len(rivers[0].point_ids) == 3
+
+
+def test_forward_fill_does_not_leak_across_a_book_map_boundary():
+    # A river name inherited within one book_map must never bleed into an
+    # unrelated later book_map just because it's the most recently seen
+    # name in document order -- each book_map's own river citations are
+    # independent unless a curated data/river_long_course.csv entry says
+    # otherwise (see the cross-book_map bridging tests above).
+    text = (
+        "§ 5.1.6  mouth of the Sangarios river 58°00' . 42°45'\n"
+        "first turn of the river 58°10' . 42°40'\n\n\n"
+        "§ 6.1.1  Some other book entirely\n"
+        "second turn of the river 40°00' . 30°00'\n"
+        "third turn of the river 40°05' . 30°00'\n"
+    )
+    points, lines = _build(text)
+    leaked = [l for l in lines if l.kind == "river" and l.book_map == "6.1"]
+    assert leaked == []
+
+
 def test_boundary_prose_mentioning_a_different_river_does_not_merge_groups():
     # A boundary sentence naming a *different* river in passing ("the
     # source of the river Danube") must land in its own Danube group, not
