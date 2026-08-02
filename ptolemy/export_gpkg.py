@@ -15,6 +15,7 @@ import pandas as pd
 from shapely.geometry import LineString, MultiLineString, Point as ShapelyPoint
 
 from .lines import Line
+from .overrides import override_key_for_point
 from .parser import Section
 from .points import Point
 
@@ -96,6 +97,18 @@ def build_line_layers(lines: list[Line], point_by_id: dict[str, Point]) -> dict[
 def _point_row(p: Point, resolved: dict[str, str]) -> dict:
     row = {
         "id": p.id,
+        # p.id is a plain "P<n>" sequence number assigned in document order
+        # by dedup_points -- it shifts if any citation earlier in the text
+        # is added, removed, or merges differently on a future run, so it
+        # can't be used to track "the same point" across regenerations
+        # (e.g. to cross-reference a QA note written against an older
+        # export). stable_id doesn't have that problem: it's the point's
+        # first citation's own (section_key, char_offset) -- or, for a
+        # manually added point with no citation of its own, its
+        # committed CSV key (see overrides.override_key_for_point) --
+        # neither of which moves just because an unrelated point elsewhere
+        # in the document was added or removed.
+        "stable_id": override_key_for_point(p),
         "name": p.name,
         "name_variants": " | ".join(p.name_variants),
         "book": int(p.book_map.split(".")[0]),

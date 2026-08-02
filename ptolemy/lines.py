@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import math
 import re
 
-from .classify import ISLAND, is_named_island_walk, starts_new_named_island
+from .classify import COASTAL, ISLAND, is_named_island_walk, starts_new_named_island
 from .parser import Section
 from .points import Point
 
@@ -150,10 +150,21 @@ def _maybe_close_loop(trail: list[Point], cap: float) -> bool:
     return d <= cap and length > 0 and d <= LOOP_CLOSE_RELATIVE_FRACTION * length
 
 
-def build_coastlines(streams: dict[str, list[tuple[str, Point]]], cap: float = COASTLINE_CAP_DEG) -> list[Line]:
+def build_coastlines(streams: dict[str, list[tuple[str, Point]]], resolved: dict[str, str],
+                      cap: float = COASTLINE_CAP_DEG) -> list[Line]:
     lines: list[Line] = []
     for book_map, seq in streams.items():
-        coastal_points = [p for _key, p in seq if "coast" in p.tags]
+        # "coast" in point.tags is a *point*-level property (true if any of
+        # its occurrences earned it), but a point can also be cited once
+        # more elsewhere in the same book.map as an incidental boundary/
+        # inland aside (confirmed §2.5.1/§2.5.3, Lusitania: the Dourius
+        # river mouth restated as the province's own opening boundary
+        # landmark, then cited again, correctly, as the coastal walk's own
+        # last point) -- including that non-coastal occurrence's position
+        # in the walk stitched in a spurious early detour to the same
+        # coordinate. Only an occurrence whose *own* section actually
+        # resolved COASTAL belongs in the walk.
+        coastal_points = [p for key, p in seq if "coast" in p.tags and resolved[key] == COASTAL]
         runs = _split_into_runs(coastal_points, cap)
         runs = _stitch_runs(runs, cap)
         for i, trail in enumerate(runs, start=1):
@@ -375,7 +386,7 @@ def build_all_lines(sections: list[Section], points: list[Point], resolved: dict
                      occurrence_index: dict[tuple[str, int], Point]) -> list[Line]:
     streams = build_citation_streams(sections, occurrence_index)
     lines = []
-    lines += build_coastlines(streams)
+    lines += build_coastlines(streams, resolved)
     lines += build_rivers(points)
     lines += build_mountains(points)
     lines += build_islands(points, resolved)

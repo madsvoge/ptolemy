@@ -45,6 +45,39 @@ def test_coastal_walk_becomes_one_trail_via_shared_junction():
 
 
 
+def test_coastal_walk_ignores_a_points_own_restated_boundary_occurrence():
+    # Confirmed §2.5.1/§2.5.3 (Lusitania): the Dourius river mouth is
+    # restated once as the province's own opening boundary landmark
+    # ("...is the common boundary with...the mouth of the river...is at
+    # COORD"), then cited again, correctly, as the real coastal walk's own
+    # last point. Both citations dedup to one Point, and since the point's
+    # own 'coast' tag is an aggregate across all its occurrences, the walk
+    # used to include it *twice* -- once at its boundary-declaration
+    # position (stitching a spurious early detour there), once at its real
+    # place. Only the occurrence whose own section actually resolved
+    # COASTAL belongs in the drawn coastline.
+    text = (
+        "§ 2.5.1  LUSITANIA\n"
+        "The southern side of Lusitania is the common boundary with the "
+        "northern side of Baetica, along the western part of the Dourius "
+        "river. The mouth of the river, which flows into the Outer Sea, "
+        "is at 5°20' . 41°50'\n\n\n"
+        "§ 2.5.2  A description of the coast:\n"
+        "Balsa 3°40' . 37°45'\n"
+        "Ossonoba 3°00' . 37°50'\n\n\n"
+        "§ 2.5.3  Of the Lusitani:\n"
+        "Oliosipum 5°10' . 40°15'\n"
+        "Dourius river mouth 5°20' . 41°50'\n"
+    )
+    points, lines = _build(text)
+    coastlines = [l for l in lines if l.kind == "coastline"]
+    assert len(coastlines) == 1
+    trail = coastlines[0]
+    dourius = next(p for p in points if p.name == "Dourius river mouth")
+    assert trail.point_ids.count(dourius.id) == 1
+    assert trail.point_ids[-1] == dourius.id
+
+
 def test_river_grouping_connects_mouth_and_source_by_shared_name():
     text = (
         "§ 2.9.1  A description of the coast\n"

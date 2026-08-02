@@ -111,13 +111,34 @@ _COAST_NAME_RE = re.compile(r"\bpromontory\b|\bcape\b|\bheadland\b|\bbay\b|\bgul
 _LAKE_RE = re.compile(r"\blakes?\b", re.I)
 # Ptolemy routinely folds a tribe's capital into an otherwise coastal
 # section ("The Caletes occupy the northern coast...their city is
-# Iuliobona", "...the Osismi whose city is Vorgum") -- this idiom recurs
-# throughout the catalogue. Such a city is not itself a waypoint on the
-# coastal walk (it can sit well inland of the stretch it's attached to,
-# breaking catalogue-order adjacency badly enough to self-intersect the
-# drawn coastline -- confirmed on 2.8.5/2.8.6), so it must be recognized
-# and tagged 'city' *before* falling back to the coastal-section default.
-_TRIBAL_CITY_RE = re.compile(r"\bcity\s+is\b|\bcities?\s+is\b|\bwhose\s+city\b|\btheir\s+city\b|\bcity\s+being\b", re.I)
+# Iuliobona", "...the Osismi whose city is Vorgum", "Near which on the
+# Opportunum bay are the Parisi and the town Petuaria") -- this idiom
+# recurs throughout the catalogue, using "town" exactly as often as "city"
+# (confirmed: Britain's own tribal lists, 2.3.9-2.3.11, and Egypt's nome
+# capitals, 4.5.55, both use "the town X"/"whose town is X"). Such a city
+# is not itself a waypoint on the coastal walk (it can sit well inland of
+# the stretch it's attached to, breaking catalogue-order adjacency badly
+# enough to self-intersect the drawn coastline -- confirmed on 2.8.5/2.8.6),
+# so it must be recognized and tagged 'city' regardless of whether the same
+# restated sentence also happens to name a coastal landmark in passing
+# ("up to the Gabaeum promontory, the Osismi whose city is Vorgum" --
+# confirmed the promontory mention alone otherwise outranked this check
+# entirely, since it used to only run as a last-resort fallback after
+# every explicit_checks entry, including the bare _COAST_NAME_RE match, had
+# already failed to fire).
+_TRIBAL_CITY_RE = re.compile(
+    r"\b(?:city|town)\s+is\b|\b(?:cities|towns)\s+is\b"
+    r"|\bwhose\s+(?:city|town)\b|\btheir\s+(?:city|town)\b"
+    r"|\b(?:city|town)\s+being\b",
+    re.I,
+)
+# The bare noun-phrase form of the same idiom, no verb at all -- "the town
+# Petuaria", "the town Devana" -- always a proper noun immediately after
+# "the town(s)", never "the towns are:" (a list-intro handled separately
+# by _INLAND_WEAK_RE's own "towns are" pattern). Kept case-sensitive on
+# purpose: the capital letter *is* the signal that distinguishes a bare
+# name from that list-intro's lowercase "are".
+_TRIBAL_CITY_BARE_RE = re.compile(r"\bthe\s+towns?\s+[A-Z]")
 # A boundary/orientation aside can land inside an otherwise coastal
 # section too (Ptolemy occasionally re-cites a "limit point" or "extreme
 # point already mentioned" mid-walk to tie the coast back to a boundary
@@ -208,13 +229,23 @@ def tag_point(point: Point, resolved: dict[str, str]) -> set[str]:
         ("mountain", bool(_MOUNTAIN_NAME_RE.search(name)) or MOUNTAIN in section_types),
         ("river_mouth", river_mouth_hit),
         ("river", bool(_RIVER_RE.search(name))),
+        # Checked ahead of harbor/coast: a tribal-capital restatement
+        # ("...up to the Gabaeum promontory, the Osismi whose city is
+        # Vorgum") routinely names a coastal landmark in passing on its way
+        # to the city it's actually about, and that landmark must not
+        # outrank the city idiom just because it happens to be an
+        # *explicit_checks* entry checked earlier in list order (confirmed
+        # bug on 2.3.10/2.8.5: "bay"/"promontory" elsewhere in the same
+        # restated sentence silently won every time, tagging the tribal
+        # capital 'coast' instead of 'city').
+        ("city", bool(_TRIBAL_CITY_RE.search(name)) or bool(_TRIBAL_CITY_BARE_RE.search(name))),
         ("harbor", bool(_HARBOR_RE.search(name))),
         ("coast", bool(_COAST_NAME_RE.search(name))),
         ("lake", bool(_LAKE_RE.search(name))),
     ]
     primary = next((tag for tag, matched in explicit_checks if matched), None)
     if primary is None:
-        if _TRIBAL_CITY_RE.search(name) or _REFERENCE_MARKER_RE.search(name):
+        if _REFERENCE_MARKER_RE.search(name):
             primary = "city"
         elif COASTAL in section_types:
             primary = "coast"

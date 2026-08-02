@@ -83,6 +83,39 @@ def test_tribal_city_idiom_overrides_coastal_default():
     assert p.tags == {"city"}
 
 
+def test_tribal_city_idiom_wins_over_a_coastal_landmark_word_in_the_same_phrase():
+    # Confirmed P731, §2.8.5: "...up to the Gabaeum promontory, the Osismi
+    # whose city is Vorgum" -- "promontory" is an explicit_checks entry
+    # checked before the old fallback-only tribal-city check ever ran, so
+    # it silently won and tagged the tribal capital 'coast' instead of
+    # 'city', even though the sentence's real subject (closest to the
+    # coordinate) is the city.
+    text = (
+        "§ 2.8.5  After these the Lexubii, then the Venelli and afterwards "
+        "the Viducasii and finally, up to the Gabaeum promontory, the "
+        "Osismi whose city is Vorgum 17°30' . 49°10'\n"
+    )
+    points = _tagged_points(text)
+    p = next(iter(points.values()))
+    assert p.tags == {"city"}
+
+
+def test_bare_the_town_name_idiom_is_tagged_city():
+    # Confirmed P136, §2.3.10: "Near which on the Opportunum bay are the
+    # Parisi and the town Petuaria" -- the same tribal-capital idiom as
+    # "whose city is X", but with "the town X" and no verb at all, and
+    # "bay" sitting right there in the same sentence.
+    text = (
+        "§ 2.3.10  Below the Selgovae and Otalini are the Brigantes, "
+        "among whom are the following towns:\n"
+        "Near which on the Opportunum bay are the Parisi and the town "
+        "Petuaria 20°40' . 56°40'\n"
+    )
+    points = _tagged_points(text)
+    p = next(iter(points.values()))
+    assert p.tags == {"city"}
+
+
 def test_reference_marker_idiom_overrides_coastal_default():
     text = (
         "§ 6.21.2  A description of the coast\n"

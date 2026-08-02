@@ -221,6 +221,26 @@ _BOUNDARY_RE = re.compile(
     re.I,
 )
 
+# A region's own opening position/boundary statement (confirmed §2.5.1,
+# "LUSITANIA\nThe southern side of Lusitania is the common boundary with
+# the northern side of Baetica...") using the bare noun "boundary" instead
+# of one of the passive verb forms _BOUNDARY_RE above already covers.
+# Checked ahead of the coastal point-cue fallback in _own_signal (unlike
+# _BOUNDARY_RE itself, which is only a last-resort check there) because
+# this idiom's own citations routinely restate a river's mouth as the
+# boundary line's own starting landmark, which is exactly the kind of
+# point-level "mouth" cue that fallback exists to catch -- and here it's
+# the wrong signal: the same coordinate is cited again, correctly, as the
+# region's real coastal walk's own endpoint later in the book.map
+# (confirmed: Dourius river mouth, restated in 2.5.1's boundary
+# declaration and again as Lusitania's actual coastal walk's last point in
+# 2.5.3 -- one dedup'd Point that would otherwise carry a stray early
+# occurrence in the drawn coastline).
+_BOUNDARY_LEAD_RE = re.compile(
+    r"\bcommon\s+boundary\b|\bis\s+the\s+boundary\b",
+    re.I,
+)
+
 
 def _own_signal(section: Section) -> str | None:
     """The type this section's own prose declares, if any (no inheritance).
@@ -245,6 +265,8 @@ def _own_signal(section: Section) -> str | None:
         return INLAND
     if _COASTAL_LEAD_RE.search(lead):
         return COASTAL
+    if _BOUNDARY_LEAD_RE.search(lead):
+        return BOUNDARY
     weak_inland = bool(_INLAND_WEAK_RE.search(lead))
     if section.citations:
         coastal_hits = sum(1 for c in section.citations if _COASTAL_POINT_RE.search(c.name_phrase))

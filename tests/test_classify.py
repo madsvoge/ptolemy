@@ -57,6 +57,28 @@ def test_cities_in_the_hinterland_is_classified_inland():
     assert resolved[sections[0].key] == INLAND
 
 
+def test_common_boundary_lead_is_classified_boundary_not_coastal():
+    # Confirmed §2.5.1, "LUSITANIA\nThe southern side of Lusitania is the
+    # common boundary with the northern side of Baetica..." -- a region's
+    # own opening boundary declaration, using the bare noun "boundary"
+    # rather than _BOUNDARY_RE's "bounded"/"bordered" verb forms, and
+    # restating its own river's mouth as the boundary line's starting
+    # landmark. Without this, the point-level "mouth" cue outranked the
+    # section's own boundary-declaration lead and it resolved COASTAL --
+    # and since that same river mouth is cited again, correctly, as the
+    # region's real coastal walk's last point later in the book.map, one
+    # dedup'd Point ended up with a spurious early appearance in the drawn
+    # coastline.
+    text = (
+        "§ 2.5.1  LUSITANIA\n"
+        "The southern side of Lusitania is the common boundary with the "
+        "northern side of Baetica. The mouth of the river, which flows "
+        "into the Outer Sea, is at 5°20' . 41°50'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == BOUNDARY
+
+
 def test_bare_hinterland_mention_in_boundary_prose_does_not_misclassify():
     # "hinterland" naming the interior in passing, within a sentence whose
     # own list-intro cue is "the shore is as follows" (confirmed §3.10.7),
