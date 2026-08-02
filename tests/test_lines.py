@@ -304,6 +304,82 @@ def test_boundary_prose_mentioning_a_different_river_does_not_merge_groups():
     assert rivers == []
 
 
+def test_curated_long_course_river_bridges_across_book_maps():
+    # Danube is in data/river_long_course.csv (curated, human-verified),
+    # with its own cap wide enough to bridge a real cross-book_map gap that
+    # the shared default RIVER_CAP_DEG (5 degrees) would leave split.
+    # Confirmed on the real corpus: the Danube's own citations span
+    # book_maps 2.11 through 3.10, and blindly widening the shared default
+    # cap for every river reintroduces a known false-merge (two different
+    # rivers both named Alaunus in Britain, 6.9 degrees apart) -- so this
+    # only works for a name the allowlist actually covers.
+    text = (
+        "§ 2.11.1  Germania Magna\n"
+        "The source of the river Danube 30°00' . 48°00'\n\n\n"
+        "§ 3.10.1  Lower Moesia\n"
+        "Mouth of the river Danube 45°00' . 46°00'\n"
+    )
+    points, lines = _build(text)
+    rivers = [l for l in lines if l.kind == "river" and l.feature_name == "Danube"]
+    assert len(rivers) == 1
+    assert len(rivers[0].point_ids) == 2
+
+
+def test_river_alias_normalizes_istros_to_danube():
+    # Confirmed §3.8.2: "the Danube is also called Istros as far as the
+    # mouth" -- data/river_aliases.csv folds "Istros" citations into the
+    # same "Danube" group rather than leaving them as two separate,
+    # unconnected single-citation rivers.
+    text = (
+        "§ 2.11.1  Germania Magna\n"
+        "The source of the river Danube 30°00' . 48°00'\n\n\n"
+        "§ 3.8.1  Lower Moesia\n"
+        "mouth of the Istros river 32°00' . 47°00'\n"
+    )
+    points, lines = _build(text)
+    rivers = [l for l in lines if l.kind == "river"]
+    assert len(rivers) == 1
+    assert rivers[0].feature_name == "Danube"
+    assert len(rivers[0].point_ids) == 2
+
+
+def test_landmark_handoff_after_mouth_does_not_fold_the_next_named_point_into_the_river():
+    # Confirmed §3.10.3: "after the Sacred mouth of the Istros river,
+    # Pteron promontory <coord>" is a *coastal* citation that merely uses
+    # the Danube's mouth as its own positional landmark -- the coordinate
+    # belongs to Pteron, not the Danube. Without this guard the river
+    # template still matched "Danube" in the first half of the phrase and
+    # folded a coastal point more than 30 degrees from the Danube's real
+    # course into its line (a self-crossing).
+    text = (
+        "§ 3.8.1  Lower Moesia\n"
+        "The source of the river Danube 30°00' . 48°00'\n\n\n"
+        "§ 3.10.1  The coastal side\n"
+        "after the mouth of the Danube river, Pteron promontory 31°00' . 6°00'\n"
+    )
+    points, lines = _build(text)
+    rivers = {l.feature_name: l for l in lines if l.kind == "river"}
+    assert "Danube" not in rivers
+    pteron = next(p for p in points if p.name.startswith("Pteron") or "Pteron" in p.name)
+    for river_line in (l for l in lines if l.kind == "river"):
+        assert pteron.id not in river_line.point_ids
+
+
+def test_uncurated_river_name_does_not_bridge_across_book_maps():
+    # Lykos is *not* in data/river_long_course.csv -- a shared name across
+    # two far-apart book_maps must stay unconnected (the safe default),
+    # not silently bridged the way an explicitly curated name is.
+    text = (
+        "§ 2.9.1  A description of the coast\n"
+        "mouth of the Lykos river 25°00' . 53°00'\n\n\n"
+        "§ 5.2.1  Some other region entirely\n"
+        "source of the river Lykos 40°00' . 48°00'\n"
+    )
+    points, lines = _build(text)
+    rivers = [l for l in lines if l.kind == "river" and l.feature_name == "Lykos"]
+    assert rivers == []
+
+
 def test_mountain_grouping_handles_mt_abbreviation():
     text = (
         "§ 3.14.35  Mountains in the Peloponnese\n"

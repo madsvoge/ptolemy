@@ -51,7 +51,7 @@ TRIBAL_CITY_RE = re.compile(
     r"|\b(?:city|town)\s+being\b",
     re.I,
 )
-TRIBAL_CITY_BARE_RE = re.compile(r"\bthe\s+towns?\s+[A-Z]")
+TRIBAL_CITY_BARE_RE = re.compile(r"\bthe\s+towns?\s+(?-i:[A-Z])", re.I)
 # The place's own real name is always the trailing run of capitalized
 # words -- whatever tribal/nome description precedes it in the sentence
 # is never itself capitalized-word-for-word all the way to the very end

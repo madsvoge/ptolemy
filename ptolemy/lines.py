@@ -4,9 +4,13 @@ purely from catalogue order and coordinates; no ground truth is consulted.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import csv
 import math
+import os
 import re
+from dataclasses import dataclass
+
+from shapely.geometry import LineString as ShapelyLineString
 
 from .classify import COASTAL, ISLAND, is_named_island_walk, is_new_region_declaration, river_bank_city_lead_name, starts_new_coastal_arc, starts_new_named_island
 from .parser import Section
@@ -83,9 +87,16 @@ def build_citation_streams(sections: list[Section], occurrence_index: dict[tuple
     return streams
 
 
-def _split_into_runs(ordered_points: list[Point], cap: float) -> list[list[Point]]:
+def _split_into_runs(ordered_points: list[Point], cap: float, keep_singletons: bool = False) -> list[list[Point]]:
     """Split a same-book.map, filtered point sequence into runs (trails)
-    wherever consecutive points repeat (a dedup echo) or exceed the cap."""
+    wherever consecutive points repeat (a dedup echo) or exceed the cap.
+    A leftover single point is dropped by default (a Line needs 2+ points)
+    -- unless keep_singletons is set, for a name about to be handed to
+    _stitch_runs across book_map boundaries, where a lone point in one
+    book_map (e.g. the Ganges' own separately-cited mouth, alone in 7.4)
+    still needs to survive this step as a 1-point run so the stitch phase
+    can pair it up; _build_named_feature_lines drops anything still a
+    singleton once stitching is done."""
     runs: list[list[Point]] = []
     current: list[Point] = []
     for p in ordered_points:
@@ -98,15 +109,39 @@ def _split_into_runs(ordered_points: list[Point], cap: float) -> list[list[Point
         if _dist(prev, p) <= cap:
             current.append(p)
         else:
-            if len(current) >= 2:
+            if len(current) >= 2 or keep_singletons:
                 runs.append(current)
             current = [p]
-    if len(current) >= 2:
+    if len(current) >= 2 or keep_singletons:
         runs.append(current)
     return runs
 
 
-def _stitch_runs(runs: list[list[Point]], cap: float) -> list[list[Point]]:
+def _trail_self_intersects(trail: list[Point]) -> bool:
+    """True if any two non-adjacent segments of this trail cross at a point
+    that isn't one of the trail's own vertices -- a trail merely touching
+    itself at a shared/repeated vertex (legitimate, e.g. a peninsula loop)
+    is not a crossing."""
+    coords = [(p.lon_modern, p.lat_modern) for p in trail]
+    segs = list(zip(coords, coords[1:]))
+    endpoints = set(coords)
+    for i in range(len(segs)):
+        for j in range(i + 2, len(segs)):
+            a, b = segs[i]
+            c, d = segs[j]
+            s1, s2 = ShapelyLineString([a, b]), ShapelyLineString([c, d])
+            if not s1.intersects(s2):
+                continue
+            inter = s1.intersection(s2)
+            if inter.geom_type == "Point":
+                if (inter.x, inter.y) not in endpoints:
+                    return True
+            elif inter.geom_type != "MultiPoint" or any((pt.x, pt.y) not in endpoints for pt in inter.geoms):
+                return True
+    return False
+
+
+def _stitch_runs(runs: list[list[Point]], cap: float, avoid_crossings: bool = False) -> list[list[Point]]:
     """Greedily join two trails' loose ends when they land close together --
     the gap an interrupting non-coastal section leaves behind. All four
     end/start orientations are tried, not just forward (end_i -> start_j):
@@ -115,27 +150,39 @@ def _stitch_runs(runs: list[list[Point]], cap: float) -> list[list[Point]]:
     west/south/east run in fact join end-to-end (Rhobogdium next to the
     east coast's last point), not end-to-start, because Ptolemy's prose
     revisits the Boreum corner explicitly ("from the Boreum promontory
-    which is in...") to *open* the second run rather than close the first."""
+    which is in...") to *open* the second run rather than close the first.
+
+    avoid_crossings (river cross-book_map stitching only) rejects the
+    nearest-endpoint candidate if it would self-cross the merged trail, and
+    falls back to the next-nearest instead. Nearest-endpoint distance alone
+    isn't always the geometrically correct join: two runs can share a real
+    duplicate point sitting in the *middle* of one of them, not at either
+    of its ends (confirmed on the Danube: "the bend at Dinogeteia city",
+    book_map 3.8, and "5th Legion Macedonica Dinogeteia", book_map 3.10,
+    are 0.17 degrees apart -- the same real place cited twice, too far
+    apart to dedup, but sitting mid-trail in 3.10's own run) -- stitching
+    onto the nearer-but-wrong end still passes the cap and produces a real
+    self-crossing. Left disabled for every other caller (coastlines) to
+    avoid changing already-verified behaviour there."""
     runs = [list(r) for r in runs]
     merged = True
     while merged and len(runs) > 1:
         merged = False
-        best = None  # (dist, i, j, orientation)
+        candidates = []  # (dist, i, j, orientation)
         for i, ti in enumerate(runs):
             for j, tj in enumerate(runs):
                 if i == j:
                     continue
-                candidates = [
+                for d, orientation in (
                     (_dist(ti[-1], tj[0]), "end_start"),
                     (_dist(ti[-1], tj[-1]), "end_end"),
                     (_dist(ti[0], tj[-1]), "start_end"),
                     (_dist(ti[0], tj[0]), "start_start"),
-                ]
-                for d, orientation in candidates:
-                    if d <= cap and (best is None or d < best[0]):
-                        best = (d, i, j, orientation)
-        if best:
-            _, i, j, orientation = best
+                ):
+                    if d <= cap:
+                        candidates.append((d, i, j, orientation))
+        candidates.sort(key=lambda c: c[0])
+        for _d, i, j, orientation in candidates:
             ti, tj = runs[i], runs[j]
             if orientation == "end_start":
                 head, tail = ti, tj
@@ -151,8 +198,11 @@ def _stitch_runs(runs: list[list[Point]], cap: float) -> list[list[Point]]:
             if head[-1].id == tail[0].id:
                 tail = tail[1:]
             new_run = head + tail
+            if avoid_crossings and _trail_self_intersects(new_run):
+                continue
             runs = [r for idx, r in enumerate(runs) if idx not in (i, j)] + [new_run]
             merged = True
+            break
     return runs
 
 
@@ -290,6 +340,26 @@ _MOUNTAIN_TEMPLATES = [
 
 _GENERIC_RIVER_WORDS = {"river", "the", "sea", "sources", "source"}
 
+# "After the mouth of the Liger river, Brivates 1°20' . 48°20'" -- a coastal
+# city/promontory citation that merely uses an earlier river's mouth as its
+# own positional landmark, the way a coastal walk restates its last point
+# before naming the next one. The coordinate belongs to the NEW name after
+# the comma (Brivates), not the river mentioned before it -- but every river
+# template above still matches "Liger" in the first half of the phrase, so
+# without this guard the city was wrongly folded into the Liger's own line
+# (confirmed §3.10.3: "after the Sacred mouth of the Istros river, Pteron
+# promontory" put a Thracian coastal promontory more than 30 degrees from
+# the Danube's own course into the Danube's line). Distinguished from a
+# genuine restatement of the *same* river ("after the mouth of the
+# Borysthenes, which is at...", confirmed book.map 3.10) by what follows the
+# comma: a bare capitalized name means a new subject, "which" means the
+# same feature restated.
+_RIVER_LANDMARK_HANDOFF_RE = re.compile(
+    r"\bafter\s+(?:the\s+)?.{0,60}?\b(?:mouths?|sources?|bends?|confluence|junction)\b"
+    r".{0,40}?,\s*(?-i:[A-Z])",
+    re.I,
+)
+
 
 def _last_template_match(phrase: str, templates: list[re.Pattern], exclude_words: set[str] = frozenset()) -> str | None:
     # The name mentioned *last* in the phrase -- i.e. closest to the
@@ -312,6 +382,8 @@ def _last_template_match(phrase: str, templates: list[re.Pattern], exclude_words
 
 def river_base_name(point: Point) -> str | None:
     for phrase in point.name_variants:
+        if _RIVER_LANDMARK_HANDOFF_RE.search(phrase):
+            continue
         name = _last_template_match(phrase, _RIVER_TEMPLATES, _GENERIC_RIVER_WORDS)
         if name:
             return name
@@ -330,6 +402,8 @@ def river_base_names(point: Point) -> list[str]:
     this, e.g. the Koa's own line ended at a point never shared with the
     Indus's line, an unconnected loose end sitting right next to it)."""
     for phrase in point.name_variants:
+        if _RIVER_LANDMARK_HANDOFF_RE.search(phrase):
+            continue
         for template in _RIVER_CONFLUENCE_TEMPLATES:
             m = template.search(phrase)
             if m:
@@ -348,27 +422,87 @@ def mountain_base_name(point: Point) -> str | None:
     return None
 
 
-def _build_named_feature_lines(points: list[Point], kind: str, names_fn, cap: float) -> list[Line]:
+def _build_named_feature_lines(
+    points: list[Point],
+    kind: str,
+    names_fn,
+    cap: float,
+    cross_book_map_caps: dict[str, float] | None = None,
+) -> list[Line]:
     """names_fn returns every group a point belongs to (almost always
     zero or one; a river confluence point belongs to two at once -- see
     river_base_names). A point in two groups appears once in each
     resulting Line, which is exactly what makes a tributary's own line
-    actually meet the river it joins at a shared vertex."""
+    actually meet the river it joins at a shared vertex.
+
+    Every name's own per-book_map runs are always built first, the same
+    safe, document-order way as before (unchanged for every caller that
+    doesn't pass cross_book_map_caps).
+
+    cross_book_map_caps (river-only) is a curated, human-verified allowlist
+    of {lowercase canonical name: cap_deg} -- see data/river_long_course.csv.
+    Only a name listed there ever bridges book_map boundaries at all, and
+    only by handing its own separate per-book_map runs to _stitch_runs,
+    which joins the geometrically *nearest* pair of loose ends first --
+    never by raw document order across the boundary. Document order across
+    a book_map boundary isn't safe to trust the way it is within one: two
+    neighbouring regions' own city lists routinely each restart near their
+    shared stretch of the river rather than continuing monotonically
+    downstream (confirmed on the Danube: 2.11's own bank-city list runs
+    east to its own region's edge, then 2.12's own list restarts further
+    west, near the source again) -- concatenating them in document order
+    draws a false backtrack across the whole width of the river bend,
+    self-crossing the real course five times. Nearest-endpoint stitching
+    (already used for coastlines, e.g. Ireland's own north/west runs)
+    doesn't have that failure mode.
+
+    This is deliberately not a blanket wider cap on top of everything: a
+    plain distance cap can't tell "one large river's citations are just
+    spread out" apart from "two different, unrelated rivers happen to
+    share a name" (confirmed on Britain's own text, two different rivers
+    both named Alaunus, 6.9 degrees apart) -- and at whole-corpus scale,
+    common river names like Lykos or Phasis repeat for genuinely different
+    rivers far more often than a single real river's own citations are
+    legitimately spread that far apart. Widening the cap (or bridging
+    book_map boundaries) is only safe once a human has actually read the
+    text and confirmed it's the same river, the same way
+    manual_section_overrides.csv exists for exactly this kind of judgment
+    call."""
+    cross_book_map_caps = cross_book_map_caps or {}
     groups: dict[tuple[str, str], list[Point]] = {}
-    display_names: dict[tuple[str, str], str] = {}
+    display_names: dict[str, str] = {}
     for p in points:
         for base in names_fn(p):
             key = (p.book_map, base.lower())
             groups.setdefault(key, []).append(p)
-            display_names.setdefault(key, base)
+            display_names.setdefault(base.lower(), base)
+
+    runs_by_name: dict[str, list[list[Point]]] = {}
+    for (_book_map, name_key), group_points in groups.items():
+        group_points = sorted(group_points, key=lambda p: p.first_char_offset)
+        # A name's own override cap (if any) already applies within a
+        # single book_map too, not just across the boundary below -- e.g.
+        # the Indus's own sources-to-delta spread, all cited inside 7.1
+        # alone, exceeds the default cap just as much as the Danube's
+        # cross-book_map spread does, and document order is exactly as
+        # trustworthy here as it is for every other in-book_map trail.
+        split_cap = cross_book_map_caps.get(name_key, cap)
+        runs_by_name.setdefault(name_key, []).extend(
+            _split_into_runs(group_points, split_cap, keep_singletons=name_key in cross_book_map_caps)
+        )
 
     lines: list[Line] = []
-    for key, group_points in groups.items():
-        book_map, _ = key
-        base = display_names[key]
-        group_points = sorted(group_points, key=lambda p: p.first_char_offset)
-        runs = _split_into_runs(group_points, cap)
+    for name_key, runs in runs_by_name.items():
+        base = display_names[name_key]
+        override_cap = cross_book_map_caps.get(name_key)
+        if override_cap is not None and len(runs) > 1:
+            runs = _stitch_runs(runs, override_cap, avoid_crossings=True)
+        runs = [r for r in runs if len(r) >= 2]
         for i, trail in enumerate(runs, start=1):
+            # A cross-book_map-stitched trail's own Line.book_map is just
+            # its first (earliest-cited) point's book_map -- representative
+            # metadata, since the trail itself may now span several.
+            book_map = trail[0].book_map
             lines.append(Line(
                 id=f"{kind}-{book_map}-{base}-{i}",
                 kind=kind,
@@ -379,7 +513,41 @@ def _build_named_feature_lines(points: list[Point], kind: str, names_fn, cap: fl
     return lines
 
 
-def build_rivers(points: list[Point], sections: list[Section], cap: float = RIVER_CAP_DEG) -> list[Line]:
+_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+RIVER_ALIASES_PATH = os.path.join(_DATA_DIR, "river_aliases.csv")
+RIVER_LONG_COURSE_PATH = os.path.join(_DATA_DIR, "river_long_course.csv")
+
+
+def _load_river_aliases(path: str = RIVER_ALIASES_PATH) -> dict[str, str]:
+    """lowercase alias -> canonical display name, e.g. 'istros' -> 'Danube'
+    (confirmed §3.8.2: "the Danube is also called Istros as far as the
+    mouth"). Curated by hand in data/river_aliases.csv, same reasoning as
+    the cross-book_map cap list below: a name-equivalence like this can
+    only be established by actually reading the text, never inferred from
+    spelling or distance alone."""
+    if not os.path.exists(path):
+        return {}
+    with open(path, newline="", encoding="utf-8") as f:
+        return {row["alias"].lower(): row["canonical"] for row in csv.DictReader(f)}
+
+
+def _load_river_long_course_caps(path: str = RIVER_LONG_COURSE_PATH) -> dict[str, float]:
+    """lowercase canonical name -> cap_deg, from data/river_long_course.csv.
+    See _build_named_feature_lines' own docstring for why this has to be an
+    explicit, curated allowlist rather than a blanket wider cap."""
+    if not os.path.exists(path):
+        return {}
+    with open(path, newline="", encoding="utf-8") as f:
+        return {row["canonical"].lower(): float(row["cap_deg"]) for row in csv.DictReader(f)}
+
+
+def build_rivers(
+    points: list[Point],
+    sections: list[Section],
+    cap: float = RIVER_CAP_DEG,
+    aliases: dict[str, str] | None = None,
+    long_course_caps: dict[str, float] | None = None,
+) -> list[Line]:
     # A city cited in a "the following cities are along the Danube
     # river:" section (confirmed §3.10.5, §2.12.4, §3.10.8) carries no
     # river vocabulary in its own name -- "Bragodurum" mentions no river
@@ -392,20 +560,25 @@ def build_rivers(points: list[Point], sections: list[Section], cap: float = RIVE
         if name:
             bank_city_rivers[section.key] = name
 
+    if aliases is None:
+        aliases = _load_river_aliases()
+
     def names_fn(p: Point) -> list[str]:
         names = river_base_names(p)
         for o in p.occurrences:
             hint = bank_city_rivers.get(o.section_key)
             if hint and hint not in names:
                 names = names + [hint]
-        return names
+        return [aliases.get(n.lower(), n) for n in names]
 
     river_points = [
         p for p in points
         if "river" in p.tags or "river_mouth" in p.tags
         or any(o.section_key in bank_city_rivers for o in p.occurrences)
     ]
-    return _build_named_feature_lines(river_points, "river", names_fn, cap)
+    if long_course_caps is None:
+        long_course_caps = _load_river_long_course_caps()
+    return _build_named_feature_lines(river_points, "river", names_fn, cap, long_course_caps)
 
 
 def build_mountains(points: list[Point], cap: float = MOUNTAIN_CAP_DEG) -> list[Line]:
@@ -420,7 +593,10 @@ def build_mountains(points: list[Point], cap: float = MOUNTAIN_CAP_DEG) -> list[
 # standalone. Reuses the exact same name-grouping/run-splitting machinery
 # as rivers/mountains (not a bespoke mechanism), scoped to island-tagged
 # points inside island-classified sections.
-_ISLAND_TEMPLATE = re.compile(r"\b([A-Z][\w-]*)\s+island\b|\bisland\s+of\s+([A-Z][\w-]*)\b")
+_ISLAND_TEMPLATE = re.compile(
+    r"\b((?-i:[A-Z])[\w-]*)\s+island\b|\bisland\s+of\s+(?:the\s+)?((?-i:[A-Z])[\w-]*)\b",
+    re.I,
+)
 
 
 def island_base_name(point: Point) -> str | None:
