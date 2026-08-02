@@ -315,17 +315,24 @@ def test_gates_and_pillars_are_not_coastal():
         assert p.tags == {"city"}, (p.name, p.tags)
 
 
-def test_until_the_border_is_a_reference_marker_not_coastal():
+def test_until_the_border_with_stays_coastal_not_a_reference_marker():
     # "...until the border with lower Moesia, at..." (confirmed §3.11.3) is
-    # a boundary line's own restated endpoint, not a fresh coastal
-    # waypoint -- the same idiom as "until the end" already handled, just
-    # naming the neighbouring region instead.
+    # NOT the same as "until the end": unlike that idiom's own confirmed
+    # cases, this citation's coordinate genuinely is the next real coastal
+    # waypoint (~0.3 degrees from the very next citation, Mesembria), not
+    # a restated endpoint far from where the walk actually continues --
+    # excluding it from 'coast' entirely dropped a real point from the
+    # map. classify.starts_new_coastal_arc handles the actual problem this
+    # idiom does cause (see test_lines.py): the point right before it in
+    # document order must not stitch straight across to it, since it opens
+    # a *different* coastal arc of the same region (confirmed §3.11.3:
+    # Thrace's own Black Sea side, not a continuation of its Aegean side).
     text = (
         "§ 3.11.3  A description of the coast\n"
         "On the east by the Propontis until the border with lower Moesia, at 55°00' . 44°40'\n"
     )
     points = _tagged_point_list(text)
-    assert points[0].tags == {"city"}
+    assert points[0].tags == {"coast"}
 
 
 def test_mouth_of_pontos_is_not_a_river_mouth():

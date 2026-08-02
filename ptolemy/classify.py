@@ -395,18 +395,23 @@ def is_new_region_declaration(section: Section) -> bool:
 # A third variant of the same hand-off idiom, except this one sits inside
 # a *citation's own name_phrase* rather than a section's lead_text --
 # "...by the onward shores of Pontos until the border with lower Moesia,
-# at [COORD]\nFrom which border the description is the following: After
-# Mesembria of Moesia, Anchialos [COORD]" (confirmed §3.11.3, Thrace).
-# Thrace's own coast, like Bithynia's, runs two separate directions from
-# its Bosporos-mouth boundary (the Aegean side, §3.11.2, and the Black Sea
-# side starting at Mesembria here) -- the boundary citation itself is
-# already excluded from the walk (it matches _REFERENCE_MARKER_RE's
-# "until the border"), but skipping just that one citation isn't enough:
-# without a hard break, the points on *either side* of it still stitched
-# straight across the gap (confirmed P1972/P1974, the Aegean coast's own
-# last point connecting directly to the Black Sea coast's own first,
-# skipping the whole Bosporos peninsula between them).
-_NEW_COASTAL_ARC_PHRASE_RE = re.compile(r"\bdescription\s+is\s+the\s+following\s*:\s*after\b", re.I)
+# at [COORD]" (confirmed §3.11.3, Thrace; also §3.10.3's own symmetric
+# "...as far as the limit point toward Thrace, at COORD", the same shared
+# boundary landmark cited from Lower Moesia's own side). Thrace's coast,
+# like Bithynia's, runs two separate directions from its Bosporos-mouth
+# boundary -- but unlike Bithynia's restated hand-off, this citation's own
+# coordinate genuinely *is* the boundary landmark itself, immediately
+# followed by the new arc's real points (confirmed §3.11.3: this citation
+# is only ~0.3 degrees from Mesembria, the very next citation -- nowhere
+# near the "far away, self-intersecting jump" its coordinate would suggest
+# if left connected *backward* to whatever preceded it instead). So this
+# citation stays a real point in the walk (unlike Bithynia's or the
+# Peloponnese's own pure-orientation restatements, which carry no fresh
+# waypoint of their own) -- it just needs to open a fresh segment rather
+# than close out the old one, or the point right before it in document
+# order (confirmed P1972) stitched straight across the whole peninsula to
+# reach it.
+_NEW_COASTAL_ARC_PHRASE_RE = re.compile(r"\buntil\s+the\s+border\s+with\b|\bthe\s+limit\s+point\s+toward\b", re.I)
 
 
 def starts_new_coastal_arc(name_phrase: str) -> bool:

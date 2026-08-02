@@ -112,21 +112,23 @@ def test_new_coastal_side_lead_splits_the_coastal_walk():
 
 def test_new_coastal_arc_citation_phrase_splits_the_coastal_walk():
     # Confirmed §3.11.3, Thrace: the region's coast, like Bithynia's, runs
-    # two separate directions from its own Bosporos-mouth boundary -- the
-    # boundary citation itself ("...until the border with lower Moesia")
-    # is already excluded from the walk as a reference marker, but the
-    # points on *either side* of it still stitched straight across the
-    # gap without a hard break there (confirmed P1972/P1974, skipping the
-    # whole Bosporos peninsula between the Aegean and Black Sea coasts).
+    # two separate directions from its own Bosporos-mouth boundary. Unlike
+    # Bithynia's own purely-orientation restatement, this citation's own
+    # coordinate ("...until the border with lower Moesia, at COORD") is a
+    # real point, only ~0.3 degrees from Mesembria which immediately
+    # follows it -- it belongs in the walk, as the Black Sea arc's own
+    # first point, not excluded outright. Without a hard break *before*
+    # it, the point right before it in document order stitched straight
+    # across to it instead (confirmed P1972/P1974, skipping the whole
+    # Bosporos peninsula between the Aegean and Black Sea coasts).
     text = (
         "§ 3.11.2  Nestos river mouth 51°45' . 41°45'\n"
         "border of Chersonesos on Propontis 53°17' . 41°50'\n\n\n"
         "§ 3.11.3  On the east by the Propontis and the mouth of Pontos, "
         "called the Thracian Bosporos, and by the onward shores of Pontos "
         "until the border with lower Moesia, at 55°00' . 44°40'\n"
-        "From which border the description is the following: After "
-        "Mesembria of Moesia, Anchialos 54°25' . 44°30'\n"
-        "Apollonia 54°30' . 44°15'\n"
+        "Mesembria of Moesia, Anchialos 54°45' . 44°30'\n"
+        "Apollonia 54°50' . 44°20'\n"
     )
     points, lines = _build(text)
     coastlines = [l for l in lines if l.kind == "coastline"]
@@ -137,6 +139,9 @@ def test_new_coastal_arc_citation_phrase_splits_the_coastal_walk():
     black_sea = next(n for n in names_by_trail if n is not aegean)
     assert "Mesembria of Moesia, Anchialos" not in aegean
     assert "Mesembria of Moesia, Anchialos" in black_sea
+    # The boundary citation itself opens the Black Sea trail as a real,
+    # included point -- not dropped from the map entirely.
+    assert any("lower Moesia" in name for name in black_sea)
 
 
 def test_mid_book_map_region_declaration_splits_the_coastal_walk():

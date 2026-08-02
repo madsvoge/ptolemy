@@ -151,15 +151,6 @@ _REFERENCE_MARKER_RE = re.compile(
     # Thessalian end, cited early as an orientation marker), which is
     # exactly the shape of jump that self-intersects a drawn coastline.
     r"|\buntil\s+the\s+end\b"
-    # "...by the onward shores of Pontos until the border with lower
-    # Moesia, at..." -- the same self-referencing boundary-endpoint idiom
-    # as "until the end", just naming the neighbouring region instead.
-    # Confirmed on Thrace's own eastern boundary (3.11.3): this citation's
-    # coordinate sits far north of where the section's real coastal walk
-    # resumes right after it ("From which border the description is the
-    # following: After Mesembria..."), which is exactly the shape of jump
-    # that self-intersects a drawn coastline.
-    r"|\buntil\s+the\s+border\b"
     # "...to the part of this line at COORD" -- another restated
     # boundary-line-position idiom, sibling to "limit point of this line
     # at..." (already covered above by "limit points?"). Confirmed
