@@ -489,6 +489,31 @@ _RIVER_ISLAND_CITY_RE = re.compile(
     r"[^.\n]*?\bare\s+the\s+following\s+cities\b",
     re.I,
 )
+# "on the Bourkas river: Koukounda" (§5.9.29), "on the river Euphrates:
+# Dagousa" (§5.7.5), "on the Ouardanos river Skopelos" (§5.9.28, no colon
+# at all -- the city name sits right after "river") -- the same bare-city-
+# list idiom again, phrased as a list of cities sitting "on" a named
+# river. Two guards, both confirmed necessary against real false-positive
+# twins in this text:
+#   - not immediately followed by "at" -- "bounded... on the Euphrates
+#     river at <coord>" (§5.19.1) is this text's own boundary-limit-point
+#     idiom (the same "river ... at position" shape already recognized in
+#     tag.py's _RIVER_RE for a river's own source), not a city list at all
+#     -- its own coordinate belongs to the boundary point, not a city.
+#   - the match must occur *before* any earlier colon in the lead --
+#     "The cities in Kasiotis:\nAntiocheia on the Orontes river ." (§5.15.16)
+#     already has its own, different colon-delimited heading ("cities in
+#     Kasiotis"), a plain regional catalogue where only its first entry
+#     happens to mention a river in passing; folding all twelve of its
+#     cities into "Orontes" wrongly pulled in Seleukeia (on the *Belos*,
+#     a different river) and Antarados (a coastal city with no river
+#     connection at all).
+_RIVER_ON_LEAD_RE = re.compile(
+    r"\bon\s+(?:the\s+)?(?:lesser\s+|greater\s+)?"
+    r"(?:river\s+((?-i:[A-Z])\w*)|((?-i:[A-Z])\w*)\s+river)\b"
+    r"(?!\s+at\b)",
+    re.I,
+)
 
 
 def river_bank_city_lead_name(section: Section) -> str | None:
@@ -498,6 +523,9 @@ def river_bank_city_lead_name(section: Section) -> str | None:
     island_match = _RIVER_ISLAND_CITY_RE.search(lead)
     if island_match:
         return island_match.group(1)
+    on_match = _RIVER_ON_LEAD_RE.search(lead)
+    if on_match and ":" not in lead[:on_match.start()]:
+        return on_match.group(1) or on_match.group(2)
     along_match = _RIVER_BANK_CITY_ALONG_RE.search(lead)
     if not along_match:
         return None

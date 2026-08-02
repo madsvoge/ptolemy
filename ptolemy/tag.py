@@ -95,6 +95,16 @@ _RIVER_RE = re.compile(
     # nearby (confirmed §4.6.14: "the Nigeir river itself links Mandron
     # mountain and Thala mountain").
     r"|\briver\b[^.\n]{0,30}\blinks?\b|\blinks?\b[^.\n]{0,30}\briver\b"
+    # "Apollonia on the Ryndakos river", "Antiocheia on the Orontes river"
+    # -- a city cited *on* a named river, its own citation phrase already
+    # containing the river's name via the same "NAME river"/"river NAME"
+    # shape lines.py's own river_base_name template recognizes for
+    # grouping. Excludes "at" right after (confirmed §5.19.1: "bounded...
+    # on the Euphrates river at <coord>" is this text's own boundary-
+    # limit-point idiom, not a city-on-a-river citation) -- same guard
+    # already used by classify.py's river_bank_city_lead_name for the
+    # equivalent section-lead shape.
+    r"|\bon\s+(?:the\s+)?river\s+\w+\b(?!\s+at\b)|\bon\s+(?:the\s+)?\w+\s+river\b(?!\s+at\b)"
     # "Mid-point of its length" / "Mid–point of the length of the river"
     # (referring anaphorically, or by full restatement, to a river cited
     # nearby) is this text's own way of citing a point partway along a

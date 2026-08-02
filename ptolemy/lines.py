@@ -525,6 +525,7 @@ def _build_named_feature_lines(
 _DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
 RIVER_ALIASES_PATH = os.path.join(_DATA_DIR, "river_aliases.csv")
 RIVER_LONG_COURSE_PATH = os.path.join(_DATA_DIR, "river_long_course.csv")
+RIVER_ANAPHORIC_LEADS_PATH = os.path.join(_DATA_DIR, "river_anaphoric_leads.csv")
 
 
 def _load_river_aliases(path: str = RIVER_ALIASES_PATH) -> dict[str, str]:
@@ -550,7 +551,28 @@ def _load_river_long_course_caps(path: str = RIVER_LONG_COURSE_PATH) -> dict[str
         return {row["canonical"].lower(): float(row["cap_deg"]) for row in csv.DictReader(f)}
 
 
-def _river_forward_fill(points: list[Point], sections: list[Section], aliases: dict[str, str]) -> dict[str, str]:
+def _load_river_anaphoric_leads(path: str = RIVER_ANAPHORIC_LEADS_PATH) -> dict[str, str]:
+    """section.key -> the river name a human confirmed by reading the text,
+    for an anaphoric bank-city lead ("And on the river itself these
+    towns:—") that names no river of its own. Deliberately NOT resolved
+    by tracking "whatever river was most recently named anywhere earlier
+    in this book_map" -- confirmed wrong on §7.1.73/§7.1.78: book_map
+    7.1's own citation stream last *explicitly* names a river at "Mouth
+    of the River Adamas" (§7.1.17), 50+ sections earlier, since every
+    tribal/city catalogue in between only mentions a river anaphorically
+    in passing prose ("towards the Ganges", never as a citation of its
+    own). Only a human actually reading the surrounding narrative (here,
+    §7.1.72's own "towards the Ganges", and Palimbothra -- Pataliputra,
+    the historically attested capital on the Ganges) gets this right."""
+    if not os.path.exists(path):
+        return {}
+    with open(path, newline="", encoding="utf-8") as f:
+        return {row["section_key"]: row["river_name"] for row in csv.DictReader(f)}
+
+
+def _river_forward_fill(
+    points: list[Point], sections: list[Section], aliases: dict[str, str]
+) -> dict[str, str]:
     """point.id -> an inherited river name, for a citation that carries its
     own river vocabulary (tag.py's 'river'/'river_mouth') but names no
     river of its own -- inherited from the most recently *explicitly*
@@ -626,6 +648,17 @@ def build_rivers(
         name = river_bank_city_lead_name(section)
         if name:
             bank_city_rivers[section.key] = name
+
+    # "And on the river itself these towns:—" (§7.1.73) names no river of
+    # its own at all -- it's the same unconditional bank-city fold as
+    # every entry above, just anaphoric. See _load_river_anaphoric_leads'
+    # own docstring for why this has to be a small, human-verified CSV
+    # rather than "whatever river was most recently named anywhere
+    # earlier in this book_map": that guess is confirmed wrong here.
+    anaphoric_leads = _load_river_anaphoric_leads()
+    for section in sections:
+        if section.key not in bank_city_rivers and section.key in anaphoric_leads:
+            bank_city_rivers[section.key] = anaphoric_leads[section.key]
 
     if aliases is None:
         aliases = _load_river_aliases()

@@ -268,6 +268,40 @@ def test_cities_along_the_river_lead_folds_bare_city_names_into_the_river():
     assert len(rivers[0].point_ids) == 2
 
 
+def test_anaphoric_lead_uses_the_curated_override_not_the_stale_book_map_name():
+    # data/river_anaphoric_leads.csv curates §7.1.73 ("And on the river
+    # itself these towns:—") as Ganges -- confirmed by context (follows
+    # §7.1.72's own "towards the Ganges", and its first city, Palimbothra,
+    # is the historically attested capital on the Ganges), NOT by blindly
+    # trusting "whatever river was most recently named earlier in this
+    # book_map", which is wrong here: this fixture's own most recent
+    # explicit river name is "Adamas", not "Ganges" -- exactly the failure
+    # mode confirmed on the real corpus (Ganges established at §7.1.29,
+    # but book_map 7.1's own citation stream last *explicitly* names a
+    # river at "Mouth of the River Adamas" dozens of sections later, with
+    # every intervening tribal/city catalogue only mentioning a river
+    # anaphorically in passing prose).
+    text = (
+        "§ 7.1.17  Mouth of the River Adamas 142°40' . 18°00'\n\n\n"
+        "§ 7.1.29  Sources of the Ganges itself 136°00' . 37°00'\n\n\n"
+        "§ 7.1.72  Farther east than the Adeisathroi towards the Ganges "
+        "are the Mandalai with this city:\n"
+        "Asthagoura 142°00' . 25°00'\n\n\n"
+        "§ 7.1.73  And on the river itself these towns:\n"
+        "Sambalaka 141°00' . 29°30'\n"
+        "Palimbothra, the Royal residence 143°00' . 27°00'\n"
+    )
+    points, lines = _build(text)
+    ganges = [l for l in lines if l.kind == "river" and l.feature_name == "Ganges"]
+    adamas = [l for l in lines if l.kind == "river" and l.feature_name == "Adamas"]
+    assert adamas == []
+    sambalaka = next(p for p in points if p.name.startswith("Sambalaka"))
+    palimbothra = next(p for p in points if p.name.startswith("Palimbothra"))
+    assert len(ganges) == 1
+    assert sambalaka.id in ganges[0].point_ids
+    assert palimbothra.id in ganges[0].point_ids
+
+
 def test_alongside_variant_also_folds_bare_city_names_into_the_river():
     # Confirmed §2.9.8: "The territory alongside the Rhine from the sea
     # until the Abrinca River is called Lower Germania; in which the
@@ -303,6 +337,70 @@ def test_island_between_two_rivers_folds_its_cities_into_the_named_river():
     rivers = [l for l in lines if l.kind == "river" and l.feature_name == "Nile"]
     assert len(rivers) == 1
     assert len(rivers[0].point_ids) == 2
+
+
+def test_on_the_river_colon_lead_folds_bare_city_names_into_the_river():
+    # Confirmed §5.9.29: "on the Bourkas river:\nKoukounda" -- a bare
+    # city-list lead phrased as "on the X river", not "along X" or "made
+    # an island by X".
+    text = (
+        "§ 5.9.29  on the Bourkas river:\n"
+        "Koukounda 70°00' . 47°45'\n"
+        "Sourouba 70°30' . 47°45'\n"
+    )
+    points, lines = _build(text)
+    rivers = [l for l in lines if l.kind == "river" and l.feature_name == "Bourkas"]
+    assert len(rivers) == 1
+    assert len(rivers[0].point_ids) == 2
+
+
+def test_on_the_river_no_colon_lead_also_folds_bare_city_names():
+    # Confirmed §5.9.28: "on the Ouardanos river Skopelos" (no colon at
+    # all -- the first city name sits directly after "river") followed by
+    # bare city names with no river vocabulary of their own.
+    text = (
+        "§ 5.9.28  on the Ouardanos river Skopelos 68°00' . 48°00'\n"
+        "Sourouba 68°30' . 48°10'\n"
+        "Korousia 69°00' . 48°20'\n"
+    )
+    points, lines = _build(text)
+    rivers = [l for l in lines if l.kind == "river" and l.feature_name == "Ouardanos"]
+    assert len(rivers) == 1
+    assert len(rivers[0].point_ids) == 3
+
+
+def test_on_the_river_at_coord_is_not_treated_as_a_city_list_lead():
+    # Confirmed §5.19.1: "bounded... on the Euphrates river at <coord>" is
+    # a boundary-limit-point idiom, not a city-list lead -- must not fold
+    # a following, unrelated citation into "Euphrates".
+    text = (
+        "§ 5.19.1  Eremos Arabia is bounded on the north by part of "
+        "Mesopotamia on the Euphrates river at 76°15' . 33°20'\n"
+        "On the west by the defined parts of Syria 79°00' . 30°10'\n"
+    )
+    points, lines = _build(text)
+    rivers = [l for l in lines if l.kind == "river"]
+    assert rivers == []
+
+
+def test_district_city_list_with_one_river_mention_does_not_fold_the_whole_list():
+    # Confirmed §5.15.16: "The cities in Kasiotis:\nAntiocheia on the
+    # Orontes river ." is a plain regional catalogue (its own colon-
+    # delimited heading, "The cities in Kasiotis:", comes *before* the
+    # river mention) where only the first entry happens to sit on a
+    # river -- Daphne and the rest have no river connection at all and
+    # must not be swept into "Orontes".
+    text = (
+        "§ 5.15.16  The cities in Kasiotis:\n"
+        "Antiocheia on the Orontes river 69°00' . 35°30'\n"
+        "Daphne 69°00' . 35°25'\n"
+    )
+    points, lines = _build(text)
+    rivers = [l for l in lines if l.kind == "river" and l.feature_name == "Orontes"]
+    assert rivers == []
+    daphne = next(p for p in points if p.name.startswith("Daphne"))
+    for river_line in (l for l in lines if l.kind == "river"):
+        assert daphne.id not in river_line.point_ids
 
 
 def test_tribal_aside_naming_a_river_in_passing_does_not_fold_its_cities_in():

@@ -176,6 +176,33 @@ def test_administrative_links_without_a_nearby_river_is_not_tagged_river():
     assert "river" not in p.tags
 
 
+def test_city_on_a_named_river_is_tagged_river():
+    # Confirmed line 5814: "Apollonia on the Ryndakos river" and §5.15.16:
+    # "Antiocheia on the Orontes river" -- a city cited on a named river
+    # carries no other river vocabulary of its own, but lines.py's own
+    # river_base_name template already recognizes "NAME river"/"river
+    # NAME" for grouping; without this tag it never entered
+    # build_rivers' own river_points filter to begin with.
+    text = "§ 5.15.16  Antiocheia on the Orontes river 69°00' . 35°30'\n"
+    points = _tagged_points(text)
+    p = next(iter(points.values()))
+    assert "river" in p.tags
+
+
+def test_on_the_river_at_coord_boundary_idiom_is_not_tagged_river():
+    # Confirmed §5.19.1: "Eremos Arabia is bounded... on the Euphrates
+    # river at <coord>" is this text's own boundary-limit-point idiom --
+    # the coordinate belongs to the boundary point, not a city cited on
+    # the river.
+    text = (
+        "§ 5.19.1  Eremos Arabia is bounded on the north by part of "
+        "Mesopotamia on the Euphrates river at 76°15' . 33°20'\n"
+    )
+    points = _tagged_points(text)
+    p = next(iter(points.values()))
+    assert "river" not in p.tags
+
+
 def test_tribal_city_idiom_overrides_coastal_default():
     text = (
         "§ 2.8.5  The Caletes occupy the northern coast from the Sequana River; "
