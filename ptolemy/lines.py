@@ -445,6 +445,9 @@ _RIVER_NAME_TEMPLATES = [
     # sits directly next to the name here).
     re.compile(r"(?i:rivers?),\s+(?:the\s+)?([A-Z][\w-]*)"),
 ]
+# See the guard in _river_primary_name: "lake, which is called Leman"
+# names the lake, not a new river.
+_RIVER_LAKE_CALLED_RE = re.compile(r"\blakes?\b.*?(?i:so-called|called)\s+(?:the\s+)?([A-Z][\w-]*)")
 _RIVER_DUAL_TEMPLATES = [
     re.compile(r"(?i:confluence|junction)\s+of\s+(?:the\s+)?([A-Z][\w-]*)\s+and\s+(?:the\s+)?([A-Z][\w-]*)"),
     # "the confluence of the Isar with the Rhodanus" -- the same idiom,
@@ -515,6 +518,12 @@ _RIVER_OPENING_WORD_RE = re.compile(
 _RIVER_CONTINUATION_VOCAB_RE = re.compile(
     r"\bturns?\b|\bbends?\b|\bsources?\b|\bsprings?\b|\bconfluence\b|\bjoins?\b|\bunites?\b"
     r"|\bforks?\b|\bbifurcat\w*\b|\bsplits?\s+into\b|\blakes?\b|\bdivert\w*\b|\briver\b"
+    # A restated multi-outlet mouth citation ("Rhodanus eastern mouth",
+    # right after "western mouth of the Rhodanus...") carries no other
+    # continuation vocabulary of its own -- without this it was silently
+    # dropped from the trail entirely rather than continuing it (confirmed
+    # §2.10.2's Rhodanus).
+    r"|\bmouths?\b"
     # "head of" is only river vocabulary when it actually says "river"
     # (optionally with a name in between, "head of the Dorias river") --
     # a bare "head of" alone also means the innermost point of a gulf/bay
@@ -570,7 +579,21 @@ def _river_primary_name(phrase: str) -> str | None:
         m = _RIVER_MOUTH_NAME_RE.search(phrase)
         if m and m.group(1).lower() not in _RIVER_NAME_STOPWORDS:
             return m.group(1)
-    return _river_last_match(phrase, _RIVER_NAME_TEMPLATES)
+    name = _river_last_match(phrase, _RIVER_NAME_TEMPLATES)
+    if name:
+        m = _RIVER_LAKE_CALLED_RE.search(phrase)
+        if m and m.group(1) == name:
+            # "the part by its lake, which is called Leman" -- names the
+            # *lake* the river passes through, not a new river of its own
+            # (confirmed §2.10.2's Rhodanus through Lake Leman; the same
+            # idiom recurs for Bistonis/Thiagola elsewhere). The "called
+            # NAME" template above can't tell a lake's name from a
+            # river's, so it's excluded here whenever the same name is
+            # the object of "lake ... called" -- the phrase's own "lake"
+            # word already qualifies it as an ordinary continuation via
+            # _RIVER_CONTINUATION_VOCAB_RE instead.
+            return None
+    return name
 
 
 def _river_dual_names(phrase: str) -> tuple[str, str] | None:
@@ -602,7 +625,7 @@ def _normalize_river_name(name: str) -> str:
     return _RIVER_NAME_ALIASES.get(name.lower(), name.lower())
 
 
-def _reorder_river_trail(entries: list[tuple[Point, str, bool]]) -> list[Point]:
+def _reorder_river_trail(entries: list[tuple[Point, str, bool, bool]]) -> list[Point]:
     """A mouth citation is walked wherever document order puts it, which
     is routinely *before* the rest of its river's own course -- confirmed
     the ordinary case, since a book.map's coastal walk (where a mouth is
@@ -620,12 +643,31 @@ def _reorder_river_trail(entries: list[tuple[Point, str, bool]]) -> list[Point]:
     rest of that section's citations follow it directly). Every other
     mouth run is moved to the trail's end instead (in its own internal
     order), since "the mouth" is definitionally the river's downstream
-    terminus."""
+    terminus.
+
+    Beyond that leading mouth run, every remaining point is either this
+    river's own *narrative* -- a bend, lake, or source told as part of
+    its own course, trusted to already be in the right order -- or a
+    *cross* citation, where another already-established river's trail
+    reaches this one via an explicit confluence/join (see the ``cross``
+    flag set in _walk_river_sections). A cross citation is routinely told
+    in a *later* section than a narrative point that actually sits
+    geographically further downstream (confirmed the Rhodanus: its turn
+    toward the Alps is given in §2.10.2, but the Arar/Dubis confluence
+    just upstream of that same turn only comes in §2.10.3, and the
+    Isar/Druentia confluences further downstream again only in §2.10.4)
+    -- left in that citation order the drawn line zigzags mouth -> turn
+    -> [upstream confluence] -> [downstream confluence], self-intersecting
+    instead of tracing the river's actual course. So each cross point is
+    instead inserted into the (untouched) narrative sequence at the
+    position its own distance to the mouth implies, leaving the trusted
+    narrative order itself alone."""
     ordered: list[Point] = []
     trailing_mouths: list[Point] = []
+    leading_mouth_count = 0
     i, n = 0, len(entries)
     while i < n:
-        point, section_key, is_mouth = entries[i]
+        point, section_key, is_mouth, _cross = entries[i]
         if not is_mouth:
             ordered.append(point)
             i += 1
@@ -636,9 +678,55 @@ def _reorder_river_trail(entries: list[tuple[Point, str, bool]]) -> list[Point]:
         run = entries[i:run_end]
         continues_in_place = run_end < n and entries[run_end][1] == run[-1][1]
         target = ordered if continues_in_place else trailing_mouths
-        target.extend(p for p, _, _ in run)
+        if target is ordered and i == 0:
+            leading_mouth_count = len(run)
+        target.extend(p for p, _, _, _ in run)
         i = run_end
+
+    # Which end the mouth landed on sets which way "closer to the mouth"
+    # should sort: a *leading* mouth (mouth-to-head narrative) means the
+    # rest of the trail walks away from it, nearest point first; a
+    # *trailing* mouth (the ordinary source-to-mouth direction, mouth
+    # appended as the downstream terminus) means the trail walks toward
+    # it, so the nearest point belongs last, right before it (confirmed
+    # both ways empirically: the leading-mouth Rhodanus and the
+    # trailing-mouth Namados sort in opposite directions from the same
+    # distance numbers).
+    if leading_mouth_count:
+        anchor, descending = ordered[leading_mouth_count - 1], False
+    elif trailing_mouths:
+        anchor, descending = trailing_mouths[0], True
+    else:
+        anchor, descending = None, False
+
+    cross_by_id = {id(p): cross for p, _, is_mouth, cross in entries if not is_mouth}
+    interior = ordered[leading_mouth_count:]
+    narrative = [p for p in interior if not cross_by_id.get(id(p), False)]
+    cross_points = [p for p in interior if cross_by_id.get(id(p), False)]
+    if anchor is not None and cross_points:
+        narrative = _merge_by_distance(narrative, cross_points, anchor, descending)
+    ordered = ordered[:leading_mouth_count] + narrative
+
     return ordered + trailing_mouths
+
+
+def _merge_by_distance(narrative: list[Point], extras: list[Point], anchor: Point,
+                        descending: bool) -> list[Point]:
+    """Insert each of ``extras`` into ``narrative`` at the position its own
+    distance to ``anchor`` implies, without disturbing narrative's own
+    relative order -- narrative is trusted as-is (see
+    _reorder_river_trail), only the extras are placed by geography."""
+    result = list(narrative)
+    for extra in sorted(extras, key=lambda p: _dist(p, anchor), reverse=descending):
+        d = _dist(extra, anchor)
+        insert_at = len(result)
+        for idx, p in enumerate(result):
+            pd = _dist(p, anchor)
+            if (pd < d) if descending else (pd > d):
+                insert_at = idx
+                break
+        result.insert(insert_at, extra)
+    return result
 
 
 def _walk_river_sections(sections_with_flags: list[tuple[Section, bool]],
@@ -661,10 +749,18 @@ def _walk_river_sections(sections_with_flags: list[tuple[Section, bool]],
     and a section that opens with its own explicit declaration (a
     "Sources of..."/"mouth of..." citation) immediately overrides
     whatever was "current" before it, same as always."""
-    raw_groups: dict[str, list[tuple[Point, str, bool]]] = {}
+    raw_groups: dict[str, list[tuple[Point, str, bool, bool]]] = {}
     seen_ids: dict[str, set[str]] = {}
     display_names: dict[str, str] = {}
     current: str | None = None
+    # Whether "current" itself was *reached* via a cross citation (see
+    # register()'s own cross parameter) -- an elliptical restatement right
+    # after a confluence ("confluence of the Isar with the Rhodanus is
+    # at X... that of the Druentia at Y", confirmed §2.10.4) carries no
+    # name or join vocabulary of its own to mark it, so it inherits
+    # whatever "current" itself was marked with, rather than defaulting
+    # back to a narrative point just because this citation looks bare.
+    current_is_cross = False
 
     def key_for(name: str) -> str:
         key = _normalize_river_name(name)
@@ -674,7 +770,31 @@ def _walk_river_sections(sections_with_flags: list[tuple[Section, bool]],
             display_names[key] = name
         return key
 
-    def register(key: str, point: Point, phrase: str, section_key: str) -> None:
+    def is_new_key(name: str) -> bool:
+        return _normalize_river_name(name) not in raw_groups
+
+    def has_narrative(key: str) -> bool:
+        # True once `key` has accumulated a real course citation of its
+        # own (a bend, source, or confluence) -- as opposed to *only* the
+        # mouth catalogued for it back in the coastal walk, which almost
+        # every river gets regardless of whether its RIVER section has
+        # been reached yet. A citation arriving while `current` points
+        # elsewhere is only a genuine cross/foreign join -- one that
+        # might conflict with an already-told course and so needs
+        # geographic reordering (see _reorder_river_trail) -- once there
+        # is an existing course for it to conflict with; the *first* real
+        # citation for a river that so far only has its mouth catalogued
+        # is that river's own narrative starting point, not a foreign
+        # join (confirmed §7.1.31's Namados/Moghis: without this guard,
+        # "confluence with the Moghis" -- Moghis's own first course
+        # citation, arriving right after Namados was "current" -- was
+        # wrongly treated as a foreign join and reordered past the very
+        # next citation, Moghis's own bifurcation, purely because this
+        # fixture's coordinates happen to put the bifurcation point
+        # further from the mouth in a straight line).
+        return any(not is_mouth for _, _, is_mouth, _ in raw_groups.get(key, []))
+
+    def register(key: str, point: Point, phrase: str, section_key: str, cross: bool = False) -> None:
         # A river's mouth or turn is occasionally restated verbatim as the
         # orientation landmark opening an unrelated later citation (the
         # same idiom build_coastlines already guards against) -- without
@@ -683,7 +803,7 @@ def _walk_river_sections(sections_with_flags: list[tuple[Section, bool]],
         if point.id in seen_ids[key]:
             return
         is_mouth = bool(_RIVER_MOUTH_WORD_RE.search(phrase))
-        raw_groups[key].append((point, section_key, is_mouth))
+        raw_groups[key].append((point, section_key, is_mouth, cross))
         seen_ids[key].add(point.id)
 
     previous_was_river_section = False
@@ -702,6 +822,7 @@ def _walk_river_sections(sections_with_flags: list[tuple[Section, bool]],
         # trusted to reach.
         if not (previous_was_river_section and is_river_section):
             current = None
+            current_is_cross = False
         previous_was_river_section = is_river_section
         for citation in section.citations:
             point = occurrence_index[(section.key, citation.char_offset)]
@@ -710,10 +831,14 @@ def _walk_river_sections(sections_with_flags: list[tuple[Section, bool]],
             dual = _river_dual_names(phrase)
             if dual:
                 key_a, key_b = key_for(dual[0]), key_for(dual[1])
-                register(key_a, point, phrase, section.key)
+                cross_a = current is not None and current != key_a and has_narrative(key_a)
+                register(key_a, point, phrase, section.key, cross=cross_a)
                 if key_b != key_a:
-                    register(key_b, point, phrase, section.key)
-                current = key_b
+                    cross_b = current is not None and current != key_b and has_narrative(key_b)
+                    register(key_b, point, phrase, section.key, cross=cross_b)
+                    current, current_is_cross = key_b, cross_b
+                else:
+                    current, current_is_cross = key_a, cross_a
                 continue
 
             # A bifurcation/split names only its two children -- the
@@ -728,15 +853,19 @@ def _walk_river_sections(sections_with_flags: list[tuple[Section, bool]],
                 if current is not None:
                     register(current, point, phrase, section.key)
                 key_a, key_b = key_for(branch[0]), key_for(branch[1])
-                register(key_a, point, phrase, section.key)
+                cross_a = current is not None and current != key_a and has_narrative(key_a)
+                register(key_a, point, phrase, section.key, cross=cross_a)
                 if key_b != key_a:
-                    register(key_b, point, phrase, section.key)
-                current = key_b
+                    cross_b = current is not None and current != key_b and has_narrative(key_b)
+                    register(key_b, point, phrase, section.key, cross=cross_b)
+                    current, current_is_cross = key_b, cross_b
+                else:
+                    current, current_is_cross = key_a, cross_a
                 continue
 
             name = _river_primary_name(phrase)
             if name:
-                is_new = _normalize_river_name(name) not in raw_groups
+                is_new = is_new_key(name)
                 if is_new and not is_river_section and current is None and not _RIVER_OPENING_WORD_RE.search(phrase):
                     # Outside a RIVER section, a bare "NAME river" mention
                     # is too common and ambiguous to trust as an opening
@@ -747,26 +876,28 @@ def _walk_river_sections(sections_with_flags: list[tuple[Section, bool]],
                     # brand-new name here.
                     continue
                 key = key_for(name)
+                cross = current is not None and current != key and has_narrative(key)
                 if current is not None and current != key and _RIVER_JOIN_TRIGGER_RE.search(phrase):
                     register(current, point, phrase, section.key)
-                register(key, point, phrase, section.key)
-                current = key
+                register(key, point, phrase, section.key, cross=cross)
+                current, current_is_cross = key, cross
                 continue
 
             target = _river_last_match(phrase, _RIVER_JOIN_TEMPLATES)
             if target:
-                is_new = _normalize_river_name(target) not in raw_groups
+                is_new = is_new_key(target)
                 if is_new and not is_river_section and current is None:
                     continue
                 key = key_for(target)
+                cross = current is not None and current != key and has_narrative(key)
                 if current is not None and current != key:
                     register(current, point, phrase, section.key)
-                register(key, point, phrase, section.key)
-                current = key
+                register(key, point, phrase, section.key, cross=cross)
+                current, current_is_cross = key, cross
                 continue
 
             if current is not None and _looks_like_river_continuation(phrase):
-                register(current, point, phrase, section.key)
+                register(current, point, phrase, section.key, cross=current_is_cross)
 
     groups = {key: _reorder_river_trail(entries) for key, entries in raw_groups.items()}
     return groups, display_names
