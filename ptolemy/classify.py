@@ -461,11 +461,11 @@ def starts_new_coastal_arc(name_phrase: str) -> bool:
 # waypoints anyway -- the same reasoning tag.py's harbor/river_mouth
 # already use for a coastal walk (a point sitting *on* a linear feature
 # is part of that feature, whatever its own citation happens to say).
-# Deliberately keeps "along" itself scoped to this exact list-intro
-# shape, not stripped as generic noise -- "bounded... along the river
-# Liger until it turns southwards" (a boundary line's own endpoint, not a
-# city list) uses the same word for a different, unrelated purpose.
-_RIVER_BANK_CITY_ALONG_RE = re.compile(r"\balong\s+(?:the\s+)?(?:river\s+)?((?-i:[A-Z])\w*)", re.I)
+# Deliberately keeps "along"/"alongside" itself scoped to this exact
+# list-intro shape, not stripped as generic noise -- "bounded... along the
+# river Liger until it turns southwards" (a boundary line's own endpoint,
+# not a city list) uses the same word for a different, unrelated purpose.
+_RIVER_BANK_CITY_ALONG_RE = re.compile(r"\balong(?:side)?\s+(?:the\s+)?(?:river\s+)?((?-i:[A-Z])\w*)", re.I)
 _RIVER_BANK_CITY_NOUN_RE = re.compile(r"\b(?:cities|towns)\b", re.I)
 _ARE_RE = re.compile(r"\bare\b", re.I)
 # "The inland towns and villages of this division, in addition to those
@@ -475,12 +475,29 @@ _ARE_RE = re.compile(r"\bare\b", re.I)
 # covered by the along-the-river list mentioned earlier; "along the
 # Ganges" describes that earlier, different group, not this one.
 _RIVER_BANK_CITY_EXCLUDE_RE = re.compile(r"\bin\s+addition\s+to\b", re.I)
+# "Here Meroe region is made an island by the Nile River on the west and
+# the Astaboras river on the east, in which are the following cities:"
+# (confirmed §4.7.20) -- the same "a bare city list whose lead names the
+# river it sits along" idiom, but phrased as an island *between* two named
+# rivers rather than "along" one. Self-contained enough (the trailing "are
+# the following cities" already confirms this is a real city-list intro)
+# that it doesn't need the noun-before-are check below -- unlike "along",
+# this shape hasn't been confirmed to have a false-positive twin anywhere
+# in this text.
+_RIVER_ISLAND_CITY_RE = re.compile(
+    r"\bmade\s+an?\s+island\s+by\s+(?:the\s+)?(?:river\s+)?((?-i:[A-Z])\w*)\b"
+    r"[^.\n]*?\bare\s+the\s+following\s+cities\b",
+    re.I,
+)
 
 
 def river_bank_city_lead_name(section: Section) -> str | None:
     lead = section.lead_text
     if _RIVER_BANK_CITY_EXCLUDE_RE.search(lead):
         return None
+    island_match = _RIVER_ISLAND_CITY_RE.search(lead)
+    if island_match:
+        return island_match.group(1)
     along_match = _RIVER_BANK_CITY_ALONG_RE.search(lead)
     if not along_match:
         return None

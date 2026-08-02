@@ -268,6 +268,43 @@ def test_cities_along_the_river_lead_folds_bare_city_names_into_the_river():
     assert len(rivers[0].point_ids) == 2
 
 
+def test_alongside_variant_also_folds_bare_city_names_into_the_river():
+    # Confirmed §2.9.8: "The territory alongside the Rhine from the sea
+    # until the Abrinca River is called Lower Germania; in which the
+    # cities are on the west bank..." -- "alongside", not "along", was
+    # missing entirely from the bank-city detector.
+    text = (
+        "§ 2.9.8  The territory alongside the Rhine from the sea until "
+        "the Abrinca River is called Lower Germania; in which the cities "
+        "are on the west bank, of the Batavians in the interior:\n"
+        "Batavodurum 27°15' . 52°30'\n"
+        "Lugdunum 27°30' . 52°40'\n"
+    )
+    points, lines = _build(text)
+    rivers = [l for l in lines if l.kind == "river" and l.feature_name == "Rhine"]
+    assert len(rivers) == 1
+    assert len(rivers[0].point_ids) == 2
+
+
+def test_island_between_two_rivers_folds_its_cities_into_the_named_river():
+    # Confirmed §4.7.20: "Here Meroe region is made an island by the Nile
+    # River on the west and the Astaboras river on the east, in which are
+    # the following cities:" -- the same bare-city-list idiom as "cities
+    # are along the river", phrased as an island between two rivers
+    # instead.
+    text = (
+        "§ 4.7.20  Here Meroe region is made an island by the Nile River "
+        "on the west and the Astaboras river on the east, in which are "
+        "the following cities:\n"
+        "Meroe 61°30' . 16°25'\n"
+        "Sakolche 61°40' . 15°15'\n"
+    )
+    points, lines = _build(text)
+    rivers = [l for l in lines if l.kind == "river" and l.feature_name == "Nile"]
+    assert len(rivers) == 1
+    assert len(rivers[0].point_ids) == 2
+
+
 def test_tribal_aside_naming_a_river_in_passing_does_not_fold_its_cities_in():
     # Confirmed §2.9.10: "...are the Helveti along the River Rhine, with
     # cities Ganodurum..." has "cities" and "along the river" both
