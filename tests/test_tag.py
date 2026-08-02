@@ -200,6 +200,23 @@ def test_river_links_two_mountains_is_tagged_river_out_of_section():
     assert "river_out_of_section" in p.tags
 
 
+def test_head_of_named_river_is_tagged_river():
+    # "head of the Dorias river at Poenina lake" (confirmed §3.1.24) --
+    # "head of" naming its own river explicitly, not just the bare "head
+    # of the river" idiom. Needs a RIVER-classified section to earn the
+    # tag; §3.1.24 is one (a mouth-to-head river-course section, see
+    # test_classify.py's test_mouth_to_head_river_course_is_classified_river).
+    text = (
+        "§ 3.1.24  mouth of the Padus river . 34°45' . 44°00'\n"
+        "the head of the river at Lario lake 30°00' . 46°00'\n"
+        "where it joins with the Dorias river 29°00' . 46°30'\n"
+        "head of the Dorias river at Poenina lake 28°00' . 47°00'\n"
+    )
+    points = _tagged_points(text)
+    p = next(p for p in points.values() if "head of the Dorias river" in p.name)
+    assert "river" in p.tags
+
+
 def test_administrative_links_without_a_nearby_river_is_not_tagged_river():
     text = (
         "§ 2.4.1  The northern side links to Tarraconensis along the "

@@ -162,6 +162,40 @@ _RIVER_LEAD_RE = re.compile(
     re.I,
 )
 
+# The mirror image of the "sources of X" lead: a handful of sections walk a
+# single river's own course the *other* direction, starting at its mouth
+# and following it upstream to its head/sources (confirmed §3.1.24, the
+# Padus/Po: "mouth of the Padus river" -> "the head of the river at Lario
+# lake" -> "where it joins with the Dorias river" -> "head of the Dorias
+# river at Poenina lake" -> ... -- no "sources" anywhere, only "head of").
+# A bare "mouth of NAME river" lead is common and NOT on its own a reliable
+# river-course signal -- it's exactly as often just the opening waypoint of
+# an ordinary coastal walk that moves on to unrelated promontories/cities/
+# other river mouths right after (confirmed §4.7.12, §5.1.7, §5.9.5,
+# §5.9.10, §5.15.3 -- all share the identical "mouth of NAME river" lead
+# but drift into plain coastal citations within a step or two). So this
+# additionally requires *every* citation after the first to still be about
+# that river's own course (turn/bend/head/confluence/source/lake...,
+# checked point-by-point below, not lead-only the way every other
+# RIVER/ISLAND/MOUNTAIN signal is) -- the one structural exception to this
+# module's own "non-carryable types read lead_text only" rule, needed
+# because Ptolemy never puts a second lead sentence in front of this
+# idiom to announce it the way "Sources of the River X" does.
+_RIVER_MOUTH_LEAD_RE = re.compile(r"^mouth\s+of\s+(?:the\s+)?[\w-]+\s+river\b", re.I)
+_RIVER_COURSE_STEP_RE = re.compile(
+    r"\briver\b|\bsources?\b|\bsprings?\b|\bturns?\b|\bbends?\b|\bconfluence\b"
+    r"|\bjoins?\b|\bforks?\b|\bbifurcat\w*\b|\bunites?\b|\bdivert\w*\b"
+    r"|\bhead\s+of\b|\blakes?\b",
+    re.I,
+)
+
+
+def _is_reverse_river_course(section: Section) -> bool:
+    if not _RIVER_MOUTH_LEAD_RE.search(section.lead_text.strip()):
+        return False
+    rest = section.citations[1:]
+    return bool(rest) and all(_RIVER_COURSE_STEP_RE.search(c.name_phrase) for c in rest)
+
 # Split into two tiers. The strong tier is unambiguous -- Ptolemy is never
 # describing a coastal walk when he uses the word "inland"/"interior", or
 # "komai" (Greek villages), or "the interior villages of X". The weak tier
@@ -304,6 +338,8 @@ def _own_signal(section: Section) -> str | None:
     if _MOUNTAIN_RE.search(lead):
         return MOUNTAIN
     if _RIVER_LEAD_RE.search(lead):
+        return RIVER
+    if _is_reverse_river_course(section):
         return RIVER
     if _INLAND_STRONG_RE.search(lead):
         return INLAND

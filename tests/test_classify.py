@@ -1,5 +1,5 @@
 from ptolemy.parser import parse_sections
-from ptolemy.classify import classify_sections, COASTAL, INLAND, ISLAND, MOUNTAIN, BOUNDARY
+from ptolemy.classify import classify_sections, COASTAL, INLAND, ISLAND, MOUNTAIN, BOUNDARY, RIVER
 
 
 def _resolve(text):
@@ -321,3 +321,59 @@ def test_of_inland_region_bare_title_is_classified_inland():
     text = "§ 3.14.38  Of inland Corinthia\nCorinthos . 53°00' . 37°00'\n"
     sections, resolved = _resolve(text)
     assert resolved[sections[0].key] == INLAND
+
+
+def test_sources_of_the_river_lead_is_classified_river():
+    text = (
+        "§ 7.1.34  Sources of the River Solen in the Bettigo range 130°00' . 15°20'\n"
+        "The point where it turns 131°00' . 16°00'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == RIVER
+
+
+def test_mouth_to_head_river_course_is_classified_river():
+    # Confirmed §3.1.24, the Padus/Po: unlike every other river-course
+    # section, this one is told the other direction -- starting at the
+    # river's mouth and following it upstream to its head, through two
+    # lake-fed forks, with no "sources" wording anywhere.
+    text = (
+        "§ 3.1.24  mouth of the Padus river . 34°45' . 44°00'\n"
+        "the head of the river at Lario lake 30°00' . 46°00'\n"
+        "where it joins with the Dorias river 29°00' . 46°30'\n"
+        "head of the Dorias river at Poenina lake 28°00' . 47°00'\n"
+        "where it is diverted toward Baenacus lake 27°00' . 47°15'\n"
+        "position of this lake 26°30' . 47°30'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == RIVER
+
+
+def test_bare_mouth_of_river_lead_without_a_sustained_course_stays_coastal():
+    # A "mouth of NAME river" lead is common and, on its own, just as
+    # often the opening waypoint of an ordinary coastal walk that moves on
+    # to unrelated points right after -- confirmed §4.7.12 (a city and a
+    # promontory, nothing more about the Rhaptus itself).
+    text = (
+        "§ 4.7.12  mouth of the Rhaptus river . 60°00' . 5°00'\n"
+        "Rhapta, metropolis of Barbaria, a short distance from the sea 61°00' . 4°30'\n"
+        "Rhapton promontory 62°00' . 4°00'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == COASTAL
+
+
+def test_mouth_of_river_lead_that_drifts_into_plain_cities_stays_coastal():
+    # Confirmed §5.15.3: a river-source digression ("river sources") sits
+    # right after the opening mouth citation, but the section then drifts
+    # into a run of ordinary Syrian coastal cities unrelated to that
+    # river -- it must not be swallowed into RIVER just because it opens
+    # the same way §3.1.24 does.
+    text = (
+        "§ 5.15.3  mouth of the Orontes river . 68°00' . 35°00'\n"
+        "river sources 67°00' . 35°30'\n"
+        "Poseidion 68°30' . 35°10'\n"
+        "Herakleia 69°00' . 35°20'\n"
+    )
+    sections, resolved = _resolve(text)
+    assert resolved[sections[0].key] == COASTAL

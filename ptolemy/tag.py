@@ -70,7 +70,11 @@ _RIVER_RE = re.compile(
     # (Peloponnese: Eurotas's and Inachos's own sources) as this text's
     # other synonyms for a river's source, cited right after that same
     # river's own mouth/outlet.
-    r"|\bbeginning\s+of\s+(?:the\s+)?river\b|\bhead\s+of\s+(?:the\s+)?river\b"
+    # "head of" also names its river explicitly ("head of the Dorias river
+    # at Poenina lake", confirmed §3.1.24), not just the bare "head of the
+    # river" -- tolerate one optional name token between "the" and "river"
+    # the same way "sources of" already does elsewhere in this text.
+    r"|\bbeginning\s+of\s+(?:the\s+)?river\b|\bhead\s+of\s+(?:the\s+)?(?:[\w-]+\s+)?river\b"
     # "The Peneios river from Mt. Pindos at position..." / "the Spercheios
     # river similarly at position..." -- a river's source given by naming
     # the mountain it rises from (or anaphorically restating that same
